@@ -17,6 +17,9 @@ const notifStreamCache = new Map();
 let swRegistration = null;
 let pushSubscription = null;
 let returnReminderTimer = null;
+let pushMessageListenerBound = false;
+let notificationsPollingTimer = null;
+let notificationsRealtimeWarned = false;
 
 // Initialiser les notifications
 async function initializeNotifications() {
@@ -36,6 +39,7 @@ async function initializeNotifications() {
 
     // Enregistrer le service worker / push uniquement si déjà autorisé
     setupPushNotifications();
+    startNotificationsPollingFallback();
     if (typeof Notification !== "undefined" && Notification.permission === "granted") {
         scheduleReturnReminder();
     }
@@ -63,10 +67,16 @@ async function setupPushNotifications() {
             (await navigator.serviceWorker.register("/sw.js", {
                 scope: "/",
             }));
+        swRegistration = await navigator.serviceWorker.ready;
 
         // Si le SW a été mis à jour, conserver la clé publique pour resubscribe
-        if (swRegistration?.active) {
-            swRegistration.active.postMessage({
+        const targetWorker =
+            swRegistration?.active ||
+            swRegistration?.waiting ||
+            swRegistration?.installing ||
+            null;
+        if (targetWorker) {
+            targetWorker.postMessage({
                 type: "SET_VAPID",
                 publicKey: VAPID_PUBLIC_KEY,
             });
@@ -94,12 +104,15 @@ async function setupPushNotifications() {
         scheduleReturnReminder();
 
         // Écoute les resubscriptions envoyées par le SW
-        navigator.serviceWorker.addEventListener("message", async (event) => {
-            if (event.data?.type === "PUSH_SUBSCRIPTION_REFRESH") {
-                pushSubscription = event.data.subscription;
-                await sendSubscriptionToServer(pushSubscription);
-            }
-        });
+        if (!pushMessageListenerBound) {
+            navigator.serviceWorker.addEventListener("message", async (event) => {
+                if (event.data?.type === "PUSH_SUBSCRIPTION_REFRESH") {
+                    pushSubscription = event.data.subscription;
+                    await sendSubscriptionToServer(pushSubscription);
+                }
+            });
+            pushMessageListenerBound = true;
+        }
     } catch (error) {
         console.warn("Push setup failed:", error);
     }
@@ -129,10 +142,15 @@ async function loadNotifications() {
 // S'abonner aux notifications en temps réel
 function subscribeToNotifications() {
     if (!currentUser) return;
+
+    if (notificationChannel) {
+        supabase.removeChannel(notificationChannel);
+        notificationChannel = null;
+    }
     
     // Créer un canal de notifications
     notificationChannel = supabase
-        .channel('notifications')
+        .channel(`notifications-${currentUser.id}-${Date.now()}`)
         .on(
             'postgres_changes',
             {
@@ -145,7 +163,14 @@ function subscribeToNotifications() {
                 handleNewNotification(payload.new);
             }
         )
-        .subscribe();
+        .subscribe((status) => {
+            if (status === "CHANNEL_ERROR" && !notificationsRealtimeWarned) {
+                notificationsRealtimeWarned = true;
+                console.warn(
+                    "Notifications realtime indisponibles. Fallback actif (vérifiez la publication realtime de notifications).",
+                );
+            }
+        });
 }
 
 // Gérer une nouvelle notification
@@ -334,17 +359,73 @@ function showBrowserNotification(notification) {
     const title = getNotificationTitle(notification);
     const body = notification.message || "";
     const icon = "icons/logo.png";
-    try {
-        const n = new Notification(title, { body, icon, tag: notification.id });
-        n.onclick = () => {
-            window.focus();
-            if (notification.link) {
-                window.location.href = notification.link;
-            }
-            n.close();
-        };
-    } catch (e) {
+    const link = normalizeNotificationLink(notification);
+    showDeviceNotification({
+        title,
+        body,
+        icon,
+        tag: notification.id,
+        link,
+        renotify: false,
+        silent: false,
+    }).catch((e) => {
         console.warn("Browser notification error:", e);
+    });
+}
+
+async function showDeviceNotification({
+    title = "XERA",
+    body = "",
+    icon = "icons/logo.png",
+    tag = undefined,
+    link = "",
+    renotify = false,
+    silent = false,
+} = {}) {
+    if (typeof window === "undefined" || typeof Notification === "undefined") {
+        return false;
+    }
+    if (Notification.permission !== "granted") return false;
+
+    const normalizedLink = String(link || "");
+    const options = {
+        body,
+        icon,
+        badge: icon,
+        tag,
+        renotify: !!renotify,
+        silent: !!silent,
+        data: { link: normalizedLink },
+    };
+
+    try {
+        if ("serviceWorker" in navigator) {
+            const reg = await navigator.serviceWorker.ready;
+            if (reg && typeof reg.showNotification === "function") {
+                await reg.showNotification(title, options);
+                return true;
+            }
+        }
+    } catch (swError) {
+        console.warn("Service worker notification error:", swError);
+    }
+
+    try {
+        const n = new Notification(title, options);
+        n.onclick = () => {
+            try {
+                window.focus();
+                if (normalizedLink) {
+                    window.location.href = normalizedLink;
+                }
+            } finally {
+                n.close();
+            }
+        };
+        return true;
+    } catch (notificationError) {
+        console.warn("Window notification error:", notificationError);
+        return false;
     }
 }
 
@@ -446,24 +527,18 @@ async function showReturnReminderNotification(reminderDate = new Date()) {
     const body = isMorning
         ? "Prends 2 minutes pour documenter ta progression ce matin."
         : "Pense à documenter ta progression de la journée sur XERA.";
-    const options = {
+    const link = currentUser?.id
+        ? `profile.html?user=${currentUser.id}`
+        : "index.html";
+    await showDeviceNotification({
+        title,
         body,
         icon: "icons/logo.png",
         tag: `xera-return-reminder-${String(hour).padStart(2, "0")}`,
+        link,
         renotify: false,
         silent: false,
-    };
-
-    try {
-        if ("serviceWorker" in navigator) {
-            const reg = await navigator.serviceWorker.ready;
-            await reg.showNotification(title, options);
-        } else if (typeof Notification !== "undefined") {
-            new Notification(title, options);
-        }
-    } catch (e) {
-        console.warn("Impossible d'afficher le rappel programmé:", e);
-    }
+    });
 }
 
 // Mettre à jour le badge de notifications
@@ -680,6 +755,10 @@ function unsubscribeFromNotifications() {
         clearTimeout(returnReminderTimer);
         returnReminderTimer = null;
     }
+    if (notificationsPollingTimer) {
+        clearInterval(notificationsPollingTimer);
+        notificationsPollingTimer = null;
+    }
 }
 
 // Convertir une clé publique VAPID base64 vers Uint8Array
@@ -723,6 +802,21 @@ async function sendSubscriptionToServer(subscription) {
     }
 }
 
+function startNotificationsPollingFallback() {
+    if (notificationsPollingTimer) {
+        clearInterval(notificationsPollingTimer);
+        notificationsPollingTimer = null;
+    }
+
+    notificationsPollingTimer = setInterval(() => {
+        if (!currentUser) return;
+        if (document.hidden) return;
+        loadNotifications().catch((error) => {
+            console.warn("Notifications fallback refresh failed:", error);
+        });
+    }, 12000);
+}
+
 // ---------------------------
 // Helpers de normalisation
 // ---------------------------
@@ -735,6 +829,16 @@ function normalizeNotification(notif) {
     n.link = normalizeNotificationLink(n);
     return n;
 }
+
+window.showDeviceNotification = showDeviceNotification;
+
+document.addEventListener("visibilitychange", () => {
+    if (document.hidden) return;
+    if (!currentUser) return;
+    loadNotifications().catch((error) => {
+        console.warn("Notifications visibility refresh failed:", error);
+    });
+});
 
 function normalizeNotificationLink(notif) {
     const link = (notif && notif.link) || "";

@@ -16,8 +16,10 @@
         usersById: new Map(),
         seenMessageIds: new Set(),
         realtimeChannel: null,
+        pollingTimer: null,
         refreshTimer: null,
         routeHandled: false,
+        realtimeWarned: false,
     };
 
     function getCurrentUserId() {
@@ -778,6 +780,21 @@
         }, 220);
     }
 
+    function startPollingFallback() {
+        if (state.pollingTimer) {
+            clearInterval(state.pollingTimer);
+            state.pollingTimer = null;
+        }
+
+        state.pollingTimer = setInterval(() => {
+            if (!isLoggedIn()) return;
+            if (document.hidden) return;
+            refreshConversations({ preserveSelection: true }).catch((error) => {
+                console.error("DM polling refresh error:", error);
+            });
+        }, 6000);
+    }
+
     async function resolveUser(userId) {
         if (!userId) return null;
         if (state.usersById.has(userId)) return state.usersById.get(userId);
@@ -818,24 +835,37 @@
             window.playNotificationSound("message");
         }
 
-        if (
-            typeof Notification !== "undefined" &&
-            Notification.permission === "granted" &&
-            (document.hidden || !isMessagesPageActive())
-        ) {
-            try {
-                const n = new Notification(`Message de ${senderName}`, {
-                    body: snippet,
-                    icon: "icons/logo.png",
-                    tag: `dm-${messageRow.id}`,
-                });
-                n.onclick = () => {
-                    window.focus();
-                    openMessagesWithUser(messageRow.sender_id);
-                    n.close();
-                };
-            } catch (error) {
-                // ignore browser notification errors
+        if (document.hidden || !isMessagesPageActive()) {
+            if (typeof window.showDeviceNotification === "function") {
+                window
+                    .showDeviceNotification({
+                        title: `Message de ${senderName}`,
+                        body: snippet,
+                        icon: "icons/logo.png",
+                        tag: `dm-${messageRow.id}`,
+                        link: `index.html?messages=1&dm=${encodeURIComponent(messageRow.sender_id)}`,
+                        renotify: true,
+                        silent: false,
+                    })
+                    .catch(() => {});
+            } else if (
+                typeof Notification !== "undefined" &&
+                Notification.permission === "granted"
+            ) {
+                try {
+                    const n = new Notification(`Message de ${senderName}`, {
+                        body: snippet,
+                        icon: "icons/logo.png",
+                        tag: `dm-${messageRow.id}`,
+                    });
+                    n.onclick = () => {
+                        window.focus();
+                        openMessagesWithUser(messageRow.sender_id);
+                        n.close();
+                    };
+                } catch (error) {
+                    // ignore browser notification errors
+                }
             }
         }
     }
@@ -875,7 +905,12 @@
         sortAndReindexConversations();
         updateUnreadUi();
 
-        if (state.selectedConversationId === conversationId) {
+        const shouldAutoRead =
+            state.selectedConversationId === conversationId &&
+            isMessagesPageActive() &&
+            !document.hidden;
+
+        if (shouldAutoRead) {
             renderChatMessages();
             if (messageRow.sender_id !== getCurrentUserId()) {
                 await markConversationAsRead(conversationId);
@@ -921,13 +956,33 @@
                     scheduleConversationsRefresh();
                 },
             )
-            .subscribe();
+            .subscribe((status) => {
+                if (status === "SUBSCRIBED") {
+                    refreshConversations({ preserveSelection: true }).catch((error) => {
+                        console.error("DM initial realtime refresh error:", error);
+                    });
+                    return;
+                }
+
+                if (status === "CHANNEL_ERROR" && !state.realtimeWarned) {
+                    state.realtimeWarned = true;
+                    console.warn(
+                        "DM realtime indisponible. Fallback polling actif (vérifiez la publication realtime des tables DM).",
+                    );
+                }
+            });
+
+        startPollingFallback();
     }
 
     function cleanupRealtime() {
         if (state.realtimeChannel) {
             supabase.removeChannel(state.realtimeChannel);
             state.realtimeChannel = null;
+        }
+        if (state.pollingTimer) {
+            clearInterval(state.pollingTimer);
+            state.pollingTimer = null;
         }
         if (state.refreshTimer) {
             clearTimeout(state.refreshTimer);
@@ -1093,6 +1148,7 @@
             state.messagesByConversation = new Map();
             state.seenMessageIds = new Set();
             state.routeHandled = false;
+            state.realtimeWarned = false;
 
             if (hasDmPage()) {
                 ensureMessagesShell();
@@ -1128,4 +1184,12 @@
     window.cleanupMessaging = cleanupMessaging;
     window.openMessagesPage = openMessagesPage;
     window.openMessagesWithUser = openMessagesWithUser;
+
+    document.addEventListener("visibilitychange", () => {
+        if (document.hidden) return;
+        if (!isLoggedIn()) return;
+        refreshConversations({ preserveSelection: true }).catch((error) => {
+            console.error("DM visibility refresh error:", error);
+        });
+    });
 })();
