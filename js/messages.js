@@ -86,6 +86,105 @@
         return `${text.slice(0, maxLen - 1)}…`;
     }
 
+    function isMissingAccountSubtypeColumnError(error) {
+        const message = String(error?.message || "").toLowerCase();
+        const mentionsColumn =
+            message.includes("account_subtype") &&
+            (message.includes("column") || message.includes("colonne"));
+        const mentionsMissing =
+            message.includes("does not exist") ||
+            message.includes("n'existe pas") ||
+            message.includes("could not find") ||
+            message.includes("schema cache");
+        return mentionsColumn && mentionsMissing;
+    }
+
+    function normalizeDiscoveryRole(value) {
+        const raw = String(value || "")
+            .trim()
+            .toLowerCase();
+        if (raw === "recruiter" || raw === "recruteur") return "recruiter";
+        if (raw === "investor" || raw === "investisseur") return "investor";
+        return "fan";
+    }
+
+    function getRoleBadgeMeta(value) {
+        const role = normalizeDiscoveryRole(value);
+        if (role === "recruiter") {
+            return {
+                role,
+                label: "Recruteur",
+                icon: "icons/recruteur.svg",
+            };
+        }
+        if (role === "investor") {
+            return {
+                role,
+                label: "Investisseur",
+                icon: "icons/investisseur.svg",
+            };
+        }
+        return null;
+    }
+
+    function renderRoleBadge(profile) {
+        const roleMeta = getRoleBadgeMeta(
+            profile?.accountSubtype || profile?.account_subtype || "",
+        );
+        if (!roleMeta) return "";
+        return `<img src="${roleMeta.icon}" alt="${roleMeta.label}" title="Type de compte: ${roleMeta.label}" class="dm-role-badge dm-role-badge--${roleMeta.role}" />`;
+    }
+
+    function renderNameWithBadges(profile) {
+        const safeName = escapeHtml(profile?.name || "Conversation");
+        const userId = profile?.id || null;
+        let verificationHtml = `<span class="username-label">${safeName}</span>`;
+
+        if (userId && typeof window.renderUsernameWithBadge === "function") {
+            try {
+                verificationHtml =
+                    window.renderUsernameWithBadge(safeName, userId) || verificationHtml;
+            } catch (error) {
+                verificationHtml = `<span class="username-label">${safeName}</span>`;
+            }
+        }
+
+        const roleBadgeHtml = renderRoleBadge(profile);
+        if (!roleBadgeHtml) return verificationHtml;
+        return `<span class="dm-user-inline">${verificationHtml}${roleBadgeHtml}</span>`;
+    }
+
+    function buildProfileHref(userId) {
+        if (!userId) return "profile.html";
+        return `profile.html?user=${encodeURIComponent(userId)}`;
+    }
+
+    function openUserProfile(userId) {
+        if (!userId) return;
+        if (
+            typeof window.navigateToUserProfile === "function" &&
+            document.getElementById("profile")
+        ) {
+            Promise.resolve(window.navigateToUserProfile(userId)).catch((error) => {
+                console.error("Navigate profile from messages failed:", error);
+                window.location.href = buildProfileHref(userId);
+            });
+            return;
+        }
+        window.location.href = buildProfileHref(userId);
+    }
+
+    function handleMessageUserLinkClick(event) {
+        const link = event.target.closest("[data-message-user-link='1']");
+        if (!link) return false;
+        const userId = link.getAttribute("data-user-id");
+        if (!userId) return false;
+        event.preventDefault();
+        event.stopPropagation();
+        openUserProfile(userId);
+        return true;
+    }
+
     function extractOtherUserIdFromPairKey(pairKey, currentUserId) {
         const parts = String(pairKey || "")
             .split(":")
@@ -196,6 +295,7 @@
         const list = document.getElementById("threads-list");
         if (list) {
             list.addEventListener("click", (event) => {
+                if (handleMessageUserLinkClick(event)) return;
                 const item = event.target.closest(".thread-item");
                 if (!item) return;
                 const conversationId = item.getAttribute("data-conversation-id");
@@ -211,6 +311,20 @@
             form.addEventListener("submit", async (event) => {
                 event.preventDefault();
                 await sendCurrentMessage();
+            });
+        }
+
+        const header = document.getElementById("chat-header");
+        if (header) {
+            header.addEventListener("click", (event) => {
+                handleMessageUserLinkClick(event);
+            });
+        }
+
+        const chat = document.getElementById("chat-messages");
+        if (chat) {
+            chat.addEventListener("click", (event) => {
+                handleMessageUserLinkClick(event);
             });
         }
 
@@ -258,10 +372,19 @@
         );
         if (missing.length === 0) return;
 
-        const { data, error } = await supabase
+        let { data, error } = await supabase
             .from("users")
-            .select("id, name, avatar")
+            .select("id, name, avatar, account_subtype")
             .in("id", missing);
+
+        if (error && isMissingAccountSubtypeColumnError(error)) {
+            const retry = await supabase
+                .from("users")
+                .select("id, name, avatar")
+                .in("id", missing);
+            data = retry.data;
+            error = retry.error;
+        }
 
         if (error) throw error;
 
@@ -305,6 +428,11 @@
                 user?.avatar ||
                 conversation.otherAvatar ||
                 "https://placehold.co/80x80?text=%F0%9F%92%AC",
+            accountSubtype:
+                user?.account_subtype ||
+                user?.accountSubtype ||
+                conversation.otherAccountSubtype ||
+                null,
         };
     }
 
@@ -336,13 +464,17 @@
                         conversation.created_at,
                 );
                 const unread = Number(conversation.unreadCount) || 0;
+                const profileNameHtml = renderNameWithBadges(profile);
+                const profileNameNode = profile.id
+                    ? `<span class="thread-user-link" data-message-user-link="1" data-user-id="${escapeHtml(profile.id)}">${profileNameHtml}</span>`
+                    : `<span class="thread-user-label">${profileNameHtml}</span>`;
 
                 return `
                     <button type="button" class="thread-item${activeClass}" data-conversation-id="${conversation.id}">
                         <img class="thread-avatar" src="${escapeHtml(profile.avatar)}" alt="${escapeHtml(profile.name)}" loading="lazy" />
                         <div class="thread-meta">
                             <div class="thread-name-row">
-                                <span class="thread-name">${escapeHtml(profile.name)}</span>
+                                <span class="thread-name">${profileNameNode}</span>
                                 <span class="thread-time">${escapeHtml(timeLabel)}</span>
                             </div>
                             <span class="thread-snippet">${escapeHtml(snippet)}</span>
@@ -371,7 +503,17 @@
         }
 
         const profile = getConversationDisplayUser(conversation);
-        if (nameEl) nameEl.textContent = profile.name;
+        if (nameEl) {
+            if (profile.id) {
+                nameEl.innerHTML = `
+                    <a href="${escapeHtml(buildProfileHref(profile.id))}" class="chat-user-link" data-message-user-link="1" data-user-id="${escapeHtml(profile.id)}">
+                        ${renderNameWithBadges(profile)}
+                    </a>
+                `;
+            } else {
+                nameEl.textContent = profile.name;
+            }
+        }
         if (subEl) {
             subEl.textContent = conversation.unreadCount
                 ? `${conversation.unreadCount} nouveau(x) message(s)`
@@ -395,6 +537,8 @@
         panel.classList.remove("empty");
         const messages = state.messagesByConversation.get(conversationId) || [];
         const currentUserId = getCurrentUserId();
+        const conversation = state.conversationsById.get(conversationId) || null;
+        const senderProfile = conversation ? getConversationDisplayUser(conversation) : null;
 
         if (!messages.length) {
             chat.innerHTML = `<div class="loading-state">Aucun message pour l'instant. Lancez la conversation.</div>`;
@@ -406,8 +550,19 @@
                 const mine = msg.sender_id === currentUserId;
                 const bubbleClass = mine ? "chat-bubble mine" : "chat-bubble";
                 const messageTime = formatMessageTime(msg.created_at);
+                const senderHtml =
+                    !mine && senderProfile?.id
+                        ? `
+                            <div class="chat-sender-row">
+                                <a href="${escapeHtml(buildProfileHref(senderProfile.id))}" class="chat-user-link" data-message-user-link="1" data-user-id="${escapeHtml(senderProfile.id)}">
+                                    ${renderNameWithBadges(senderProfile)}
+                                </a>
+                            </div>
+                        `
+                        : "";
                 return `
                     <div class="${bubbleClass}" data-message-id="${msg.id}">
+                        ${senderHtml}
                         <div class="chat-body">${escapeHtml(msg.body || "")}</div>
                         <div class="chat-time">${escapeHtml(messageTime)}</div>
                     </div>
@@ -529,6 +684,8 @@
                     id: conv.id,
                     otherUserId: otherUserId || null,
                     otherName: userProfile?.name || "Conversation",
+                    otherAccountSubtype:
+                        userProfile?.account_subtype || userProfile?.accountSubtype || null,
                     otherAvatar:
                         userProfile?.avatar ||
                         "https://placehold.co/80x80?text=%F0%9F%92%AC",
@@ -801,9 +958,22 @@
         try {
             const { data, error } = await supabase
                 .from("users")
-                .select("id, name, avatar")
+                .select("id, name, avatar, account_subtype")
                 .eq("id", userId)
                 .maybeSingle();
+            if (error && isMissingAccountSubtypeColumnError(error)) {
+                const retry = await supabase
+                    .from("users")
+                    .select("id, name, avatar")
+                    .eq("id", userId)
+                    .maybeSingle();
+                if (retry.error) throw retry.error;
+                if (retry.data) {
+                    state.usersById.set(retry.data.id, retry.data);
+                    return retry.data;
+                }
+                return null;
+            }
             if (error) throw error;
             if (data) {
                 state.usersById.set(data.id, data);

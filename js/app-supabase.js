@@ -7558,11 +7558,38 @@ function initGlobalSoundActivation() {
 function setupImmersiveSnapNav() {
     const overlay = document.getElementById("immersive-overlay");
     if (!overlay) return;
-    if (overlay.dataset.snapNavBound === "true") return;
+
+    // Rebind safely when the immersive overlay is rebuilt
+    if (typeof overlay.__snapCleanup === "function") {
+        overlay.__snapCleanup();
+        overlay.__snapCleanup = null;
+    }
+
     overlay.dataset.snapNavBound = "true";
+
+    const SWIPE_THRESHOLD_PX = 52;
+    const AXIS_LOCK_THRESHOLD_PX = 10;
+    const NAV_COOLDOWN_MS = 420;
+    const WHEEL_THRESHOLD = 10;
+
+    let startX = 0;
     let startY = 0;
-    let endY = 0;
     let isTouching = false;
+    let ignoreCurrentGesture = false;
+    let lockUntilTs = 0;
+    let lockTimer = null;
+
+    const isOverlayOpen = () => overlay.style.display === "block";
+
+    const isInteractiveTarget = (target) =>
+        !!target?.closest(
+            "input, textarea, select, button, a, [contenteditable='true'], .xera-carousel, .xera-carousel-track, .xera-carousel-arrow",
+        );
+
+    const getPosts = () =>
+        Array.from(overlay.querySelectorAll(".immersive-post")).filter(
+            (el) => el.offsetParent !== null,
+        );
 
     const getActiveIndex = (posts) => {
         if (!posts.length) return 0;
@@ -7580,51 +7607,135 @@ function setupImmersiveSnapNav() {
         return closestIndex;
     };
 
+    const clearNavLockTimer = () => {
+        if (!lockTimer) return;
+        clearTimeout(lockTimer);
+        lockTimer = null;
+    };
+
+    const engageNavLock = () => {
+        lockUntilTs = Date.now() + NAV_COOLDOWN_MS;
+        clearNavLockTimer();
+        lockTimer = setTimeout(() => {
+            lockUntilTs = 0;
+            lockTimer = null;
+        }, NAV_COOLDOWN_MS);
+    };
+
+    const isNavLocked = () => Date.now() < lockUntilTs;
+
     const scrollToIndex = (posts, index) => {
         if (!posts[index]) return;
+        engageNavLock();
         posts[index].scrollIntoView({
             behavior: "smooth",
-            block: "center",
+            block: "start",
             inline: "nearest",
         });
     };
 
-    overlay.addEventListener(
-        "touchstart",
-        (e) => {
-            if (!e.touches || e.touches.length === 0) return;
-            startY = e.touches[0].clientY;
-            isTouching = true;
-        },
-        { passive: true },
-    );
+    const navigateStep = (direction) => {
+        if (!isOverlayOpen()) return;
+        if (isNavLocked()) return;
+        const posts = getPosts();
+        if (posts.length === 0) return;
+        const currentIndex = getActiveIndex(posts);
+        const nextIndex = Math.max(
+            0,
+            Math.min(posts.length - 1, currentIndex + direction),
+        );
+        if (nextIndex === currentIndex) return;
+        scrollToIndex(posts, nextIndex);
+    };
 
-    overlay.addEventListener(
-        "touchend",
-        (e) => {
-            if (!isTouching) return;
-            endY =
-                e.changedTouches && e.changedTouches[0]
-                    ? e.changedTouches[0].clientY
-                    : startY;
-            const delta = startY - endY;
-            const posts = Array.from(
-                document.querySelectorAll(".immersive-post"),
-            );
-            if (posts.length === 0) return;
-            const currentIndex = getActiveIndex(posts);
-            if (Math.abs(delta) > 50) {
-                const nextIndex =
-                    delta > 0 ? currentIndex + 1 : currentIndex - 1;
-                scrollToIndex(
-                    posts,
-                    Math.max(0, Math.min(posts.length - 1, nextIndex)),
-                );
-            }
+    const onTouchStart = (e) => {
+        if (!isOverlayOpen()) return;
+        if (!e.touches || e.touches.length !== 1) {
             isTouching = false;
-        },
-        { passive: true },
-    );
+            return;
+        }
+
+        const touch = e.touches[0];
+        startX = touch.clientX;
+        startY = touch.clientY;
+        isTouching = true;
+        ignoreCurrentGesture = isInteractiveTarget(e.target);
+    };
+
+    const onTouchMove = (e) => {
+        if (!isTouching || ignoreCurrentGesture) return;
+        if (!e.touches || e.touches.length !== 1) return;
+
+        const touch = e.touches[0];
+        const deltaX = touch.clientX - startX;
+        const deltaY = touch.clientY - startY;
+        const absX = Math.abs(deltaX);
+        const absY = Math.abs(deltaY);
+
+        // Bloquer le scroll natif vertical pour imposer 1 swipe = 1 post.
+        if (absY > AXIS_LOCK_THRESHOLD_PX && absY > absX) {
+            e.preventDefault();
+        }
+    };
+
+    const onTouchEnd = (e) => {
+        if (!isTouching) return;
+        isTouching = false;
+        if (ignoreCurrentGesture) {
+            ignoreCurrentGesture = false;
+            return;
+        }
+
+        const touch =
+            (e.changedTouches && e.changedTouches[0]) ||
+            (e.touches && e.touches[0]) ||
+            null;
+        if (!touch) return;
+
+        const deltaX = touch.clientX - startX;
+        const deltaY = touch.clientY - startY;
+        const absX = Math.abs(deltaX);
+        const absY = Math.abs(deltaY);
+
+        if (absY < SWIPE_THRESHOLD_PX || absY <= absX) return;
+
+        e.preventDefault();
+        const direction = deltaY < 0 ? 1 : -1;
+        navigateStep(direction);
+    };
+
+    const onTouchCancel = () => {
+        isTouching = false;
+        ignoreCurrentGesture = false;
+    };
+
+    const onWheel = (e) => {
+        if (!isOverlayOpen()) return;
+        if (isInteractiveTarget(e.target)) return;
+        if (Math.abs(e.deltaY) < WHEEL_THRESHOLD) return;
+
+        e.preventDefault();
+        const direction = e.deltaY > 0 ? 1 : -1;
+        navigateStep(direction);
+    };
+
+    overlay.addEventListener("touchstart", onTouchStart, { passive: true });
+    overlay.addEventListener("touchmove", onTouchMove, { passive: false });
+    overlay.addEventListener("touchend", onTouchEnd, { passive: false });
+    overlay.addEventListener("touchcancel", onTouchCancel, { passive: true });
+    overlay.addEventListener("wheel", onWheel, { passive: false });
+
+    overlay.__snapCleanup = () => {
+        overlay.removeEventListener("touchstart", onTouchStart);
+        overlay.removeEventListener("touchmove", onTouchMove);
+        overlay.removeEventListener("touchend", onTouchEnd);
+        overlay.removeEventListener("touchcancel", onTouchCancel);
+        overlay.removeEventListener("wheel", onWheel);
+        clearNavLockTimer();
+        lockUntilTs = 0;
+        isTouching = false;
+        ignoreCurrentGesture = false;
+    };
 }
 
 function setupImmersiveKeyboardNav() {
