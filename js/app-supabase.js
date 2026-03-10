@@ -485,11 +485,22 @@ function buildArcCollaboratorAvatars(content, options = {}) {
     const size = options.size || 22;
     const className = options.className || "";
     const label = options.label || "Collaboration";
+    const fromImmersive = !!options.fromImmersive;
+
+    const renderAvatarButton = (user, roleLabel) => {
+        if (!user?.id) return "";
+        const safeName = escapeHtml(user.name || roleLabel || "Collaborateur");
+        return `
+            <button type="button" onclick="event.stopPropagation(); handleProfileClick('${user.id}', this, ${fromImmersive})" aria-label="Voir le profil de ${safeName}">
+                <img src="${user.avatar || "https://placehold.co/32"}" alt="Avatar ${safeName}" style="width:${size}px; height:${size}px;">
+            </button>
+        `;
+    };
 
     return `
         <div class="arc-collab-avatars ${className}" title="${label}">
-            <img src="${ownerUser.avatar || "https://placehold.co/32"}" alt="Avatar créateur" style="width:${size}px; height:${size}px;">
-            <img src="${collaborator.avatar || "https://placehold.co/32"}" alt="Avatar collaborateur" style="width:${size}px; height:${size}px;">
+            ${renderAvatarButton(ownerUser, "Créateur")}
+            ${renderAvatarButton(collaborator, "Collaborateur")}
         </div>
     `;
 }
@@ -526,11 +537,18 @@ function buildArcCollaboratorCornerAvatars(content, options = {}) {
     const visible = others.slice(0, max);
     const hiddenCount = Math.max(0, others.length - visible.length);
     const label = options.label || "Autres collaborateurs";
+    const fromImmersive = !!options.fromImmersive;
 
     const avatarsHtml = visible
         .map(
-            (user) =>
-                `<img src="${user.avatar || "https://placehold.co/32"}" alt="Collaborateur" style="width:${size}px; height:${size}px;">`,
+            (user) => {
+                const safeName = escapeHtml(user?.name || "Collaborateur");
+                return `
+                    <button type="button" onclick="event.stopPropagation(); handleProfileClick('${user.id}', this, ${fromImmersive})" aria-label="Voir le profil de ${safeName}">
+                        <img src="${user.avatar || "https://placehold.co/32"}" alt="Collaborateur ${safeName}" style="width:${size}px; height:${size}px;">
+                    </button>
+                `;
+            },
         )
         .join("");
 
@@ -5130,6 +5148,7 @@ function renderUserCard(
         size: 18,
         max: 3,
         className: "arc-collab-avatars--card-corner",
+        fromImmersive: false,
     });
     const mediaList = Array.isArray(latestContent.mediaUrls)
         ? latestContent.mediaUrls.filter(Boolean)
@@ -5299,6 +5318,7 @@ function renderUserCard(
     const collabAvatarsHtml = buildArcCollaboratorAvatars(latestContent, {
         size: 20,
         className: "arc-collab-avatars--card",
+        fromImmersive: false,
     });
 
     // User Info (Name, Avatar, Subscribe) - Moved to bottom
@@ -6908,11 +6928,13 @@ async function renderImmersiveFeed(contents) {
             const collabAvatarsHtml = buildArcCollaboratorAvatars(content, {
                 size: 22,
                 className: "arc-collab-avatars--immersive",
+                fromImmersive: true,
             });
             const collabCornerHtml = buildArcCollaboratorCornerAvatars(content, {
                 size: 20,
                 max: 4,
                 className: "arc-collab-avatars--immersive-corner",
+                fromImmersive: true,
             });
 
             let mediaHtml = "";
@@ -8079,6 +8101,45 @@ async function renderProfileTimeline(userId) {
         }
     }
 
+    // If project relation is missing (common on collaboration histories), hydrate by project_id.
+    if (displayContents.length > 0) {
+        const missingProjectIds = new Set();
+        displayContents.forEach((content) => {
+            if (content?.projectId && !content.project) {
+                missingProjectIds.add(content.projectId);
+            }
+        });
+        if (missingProjectIds.size > 0) {
+            try {
+                const { data: projectsData, error: projectsError } =
+                    await supabase
+                        .from("projects")
+                        .select("id, name")
+                        .in("id", Array.from(missingProjectIds));
+                if (!projectsError && Array.isArray(projectsData)) {
+                    const projectMap = new Map(
+                        projectsData.map((p) => [p.id, p]),
+                    );
+                    displayContents = displayContents.map((content) => {
+                        if (
+                            content?.projectId &&
+                            !content.project &&
+                            projectMap.has(content.projectId)
+                        ) {
+                            return {
+                                ...content,
+                                project: projectMap.get(content.projectId),
+                            };
+                        }
+                        return content;
+                    });
+                }
+            } catch (e) {
+                /* ignore */
+            }
+        }
+    }
+
     const viewerCollabStatusMap = await fetchArcCollabStatusMap(
         allArcs.map((a) => a.id),
         currentUserId,
@@ -8902,7 +8963,6 @@ async function renderProfileTimeline(userId) {
             </div>
         </section>
         <div class="profile-analytics-section ${!isOwnProfile ? "compact" : ""}" style="margin: 2.5rem 0;">
-            <h3 class="section-title">Analytics mensuelles</h3>
             <div id="profile-analytics" class="analytics-dashboard ${!isOwnProfile ? "analytics-dashboard-compact" : ""}" style="padding: 0; margin: 0; max-width: 100%;"></div>
         </div>
         <div class="timeline">
@@ -9162,6 +9222,12 @@ window.renderWeeklyProgressChart = async function (userId) {
    NAVIGATION
    ======================================== */
 
+function syncFloatingCreateVisibility(pageId) {
+    const container = document.getElementById("floating-create-container");
+    if (!container) return;
+    container.style.display = pageId === "messages" ? "none" : "";
+}
+
 function navigateTo(pageId) {
     // Vérifier si l'utilisateur essaie d'accéder à son profil sans être connecté
     if (pageId === "profile" && !currentUser && !window.currentProfileViewed) {
@@ -9207,10 +9273,13 @@ function navigateTo(pageId) {
     if (targetPage) {
         targetPage.classList.add("active");
     }
+    syncFloatingCreateVisibility(pageId);
     window.scrollTo(0, 0);
     document.body.classList.toggle("profile-open", pageId === "profile");
     handleLoginPromptContext();
 }
+
+window.syncFloatingCreateVisibility = syncFloatingCreateVisibility;
 
 // Make sure handleProfileNavigation is defined as an async function
 async function handleProfileNavigation() {

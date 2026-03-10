@@ -519,6 +519,10 @@ nav {
     filter: drop-shadow(0 0 4px rgba(14,165,233,0.5));
 }
 
+.mobile-bottom-nav {
+    display: none;
+}
+
 .lang-select {
     background: rgba(255,255,255,0.06);
     border: 1px solid var(--border-color);
@@ -1195,6 +1199,14 @@ nav {
     gap: 0;
 }
 
+.arc-collab-avatars button {
+    background: transparent;
+    border: none;
+    padding: 0;
+    cursor: pointer;
+    line-height: 0;
+}
+
 .arc-collab-avatars img {
     border-radius: 999px;
     border: 2px solid var(--bg-secondary);
@@ -1202,7 +1214,7 @@ nav {
     background: #222;
 }
 
-.arc-collab-avatars img + img {
+.arc-collab-avatars button + button {
     margin-left: -8px;
 }
 
@@ -1226,7 +1238,7 @@ nav {
     backdrop-filter: blur(4px);
 }
 
-.arc-collab-avatars--corner img + img {
+.arc-collab-avatars--corner button + button {
     margin-left: -6px;
 }
 
@@ -4225,10 +4237,10 @@ html.light-mode .btn-theme-toggle:hover {
         justify-content: center;
     }
 
-    /* Masquer le logo XERA sur la page discover pour les téléphones */
     nav .logo {
         display: none !important;
     }
+
 }
 
 /* --- INTERFACE CRÉATION (MODALE) --- */
@@ -5105,24 +5117,24 @@ html.light-mode .btn-theme-toggle:hover {
 
 /* Influence & Reach */
 .influence-section {
-    margin: 2rem 0;
+    margin: 1.6rem 0;
 }
 
 .influence-grid {
     display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
-    gap: 1rem;
+    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+    gap: 0.8rem;
 }
 
 .influence-card {
     background: var(--surface-color);
     border: 1px solid var(--border-color);
     border-radius: 14px;
-    padding: 1rem 1.1rem;
+    padding: 0.85rem 0.95rem;
     display: flex;
     flex-direction: column;
     gap: 0.6rem;
-    min-height: 160px;
+    min-height: 140px;
 }
 
 .influence-card h4 {
@@ -5130,6 +5142,7 @@ html.light-mode .btn-theme-toggle:hover {
     display: flex;
     align-items: center;
     gap: 0.5rem;
+    font-size: 0.95rem;
 }
 
 .influence-card .stat-block {
@@ -5139,23 +5152,24 @@ html.light-mode .btn-theme-toggle:hover {
 }
 
 .influence-card .stat-value {
-    font-size: 1.35rem;
+    font-size: 1.15rem;
     font-weight: 700;
 }
 
 .influence-card .stat-label {
     color: var(--text-secondary);
-    font-size: 0.9rem;
+    font-size: 0.8rem;
 }
 
 .influence-card .connect-btn {
     margin-top: auto;
-    padding: 0.55rem 0.9rem;
-    border-radius: 10px;
+    padding: 0.45rem 0.75rem;
+    border-radius: 9px;
     border: 1px dashed var(--border-color);
     background: rgba(255,255,255,0.03);
     color: var(--text-primary);
     cursor: pointer;
+    font-size: 0.8rem;
 }
 
 .influence-card.connected {
@@ -5170,6 +5184,52 @@ html.light-mode .btn-theme-toggle:hover {
     object-fit: cover;
     border: 1px solid rgba(255,255,255,0.15);
     display: none;
+}
+
+@media (max-width: 600px) {
+    .influence-grid {
+        grid-template-columns: repeat(auto-fit, minmax(70px, 1fr));
+        gap: 0.4rem;
+    }
+
+    .influence-card {
+        padding: 0.5rem;
+        border-radius: 10px;
+        min-height: 110px;
+        gap: 0.35rem;
+    }
+
+    .influence-card h4 {
+        font-size: 0.75rem;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+    }
+
+    .influence-card .stat-block {
+        grid-template-columns: 1fr;
+        gap: 0.3rem;
+    }
+
+    .influence-card .stat-value {
+        font-size: 0.95rem;
+    }
+
+    .influence-card .stat-label {
+        font-size: 0.65rem;
+        letter-spacing: 0.01em;
+    }
+
+    .influence-card .connect-btn {
+        padding: 0.35rem 0.4rem;
+        border-radius: 8px;
+        font-size: 0.65rem;
+    }
+
+    .influence-card .sp-avatar {
+        width: 30px;
+        height: 30px;
+    }
 }
 
 /* Skeletons pour le feed immersif */
@@ -5275,10 +5335,6 @@ html.light-mode .btn-theme-toggle:hover {
 }
 
 @media (max-width: 900px) {
-    body {
-        padding-bottom: 84px;
-    }
-
     .hero-mobile-demo-card {
         display: block;
         margin-top: 0.75rem;
@@ -5294,53 +5350,8 @@ html.light-mode .btn-theme-toggle:hover {
         margin: 0.3rem 0 0.65rem;
     }
 
-    .mobile-bottom-nav {
-        position: fixed;
-        left: 0;
-        right: 0;
-        bottom: 0;
-        z-index: 1200;
-        background: rgba(8, 8, 8, 0.96);
-        border-top: 1px solid var(--border-color);
-        display: grid;
-        grid-template-columns: repeat(4, 1fr);
-        backdrop-filter: blur(10px);
-    }
-
-    .mobile-bottom-nav-btn {
-        border: none;
-        background: transparent;
-        color: var(--text-secondary);
-        display: flex;
-        flex-direction: column;
-        align-items: center;
-        justify-content: center;
-        gap: 0.15rem;
-        padding: 0.45rem 0.15rem 0.55rem;
-        font-size: 1rem;
-    }
-
-    .mobile-bottom-nav-btn small {
-        font-size: 0.7rem;
-        color: var(--text-secondary);
-    }
-
-    .mobile-bottom-nav-btn:active {
-        transform: translateY(1px);
-    }
-
-    #floating-create-container {
-        bottom: 92px;
-    }
-
     .profile-progress-snapshot {
         grid-template-columns: 1fr;
         max-width: 100%;
-    }
-}
-
-@media (min-width: 901px) {
-    .mobile-bottom-nav {
-        display: none;
     }
 }
