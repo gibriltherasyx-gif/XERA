@@ -5188,3 +5188,131 @@ html.light-mode .btn-theme-toggle:hover {
     0% { background-position: 200% 0; }
     100% { background-position: -200% 0; }
 }
+
+/* --- UX polish: mobile bottom nav + profile snapshot + richer desktop cards --- */
+.hero-mobile-demo-card {
+    display: none;
+}
+
+.profile-progress-snapshot {
+    margin: 0.9rem auto 0;
+    padding: 0.7rem;
+    border: 1px solid var(--border-color);
+    border-radius: 12px;
+    max-width: 720px;
+    background: rgba(255, 255, 255, 0.02);
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 0.45rem;
+}
+
+.profile-progress-snapshot .snapshot-item {
+    padding: 0.55rem;
+    border-radius: 10px;
+    background: rgba(255, 255, 255, 0.03);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.profile-progress-snapshot .snapshot-label {
+    color: var(--text-secondary);
+    font-size: 0.72rem;
+}
+
+.profile-progress-snapshot .snapshot-value {
+    font-weight: 700;
+    font-size: 0.98rem;
+}
+
+@media (min-width: 1200px) {
+    .discover-grid {
+        grid-template-columns: repeat(3, 1fr);
+        gap: 1.75rem;
+    }
+
+    .user-card {
+        padding: 1.15rem;
+        gap: 0.95rem;
+    }
+
+    .card-media,
+    .card-media-wrap .xera-carousel-slide img.card-media {
+        height: 180px;
+    }
+}
+
+.mood-btn {
+    border-radius: 999px;
+    padding: 0.42rem 0.82rem;
+    font-weight: 600;
+}
+
+@media (max-width: 900px) {
+    body {
+        padding-bottom: 84px;
+    }
+
+    .hero-mobile-demo-card {
+        display: block;
+        margin-top: 0.75rem;
+        border: 1px solid var(--border-color);
+        border-radius: 12px;
+        padding: 0.8rem;
+        background: rgba(255, 255, 255, 0.02);
+    }
+
+    .hero-mobile-demo-card p {
+        color: var(--text-secondary);
+        font-size: 0.86rem;
+        margin: 0.3rem 0 0.65rem;
+    }
+
+    .mobile-bottom-nav {
+        position: fixed;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        z-index: 1200;
+        background: rgba(8, 8, 8, 0.96);
+        border-top: 1px solid var(--border-color);
+        display: grid;
+        grid-template-columns: repeat(4, 1fr);
+        backdrop-filter: blur(10px);
+    }
+
+    .mobile-bottom-nav-btn {
+        border: none;
+        background: transparent;
+        color: var(--text-secondary);
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 0.15rem;
+        padding: 0.45rem 0.15rem 0.55rem;
+        font-size: 1rem;
+    }
+
+    .mobile-bottom-nav-btn small {
+        font-size: 0.7rem;
+        color: var(--text-secondary);
+    }
+
+    .mobile-bottom-nav-btn:active {
+        transform: translateY(1px);
+    }
+
+    #floating-create-container {
+        bottom: 92px;
+    }
+
+    .profile-progress-snapshot {
+        grid-template-columns: 1fr;
+        max-width: 100%;
+    }
+}
+
+@media (min-width: 901px) {
+    .mobile-bottom-nav {
+        display: none;
+    }
+}

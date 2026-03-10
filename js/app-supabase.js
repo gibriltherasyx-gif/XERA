@@ -8278,6 +8278,32 @@ async function renderProfileTimeline(userId) {
     const followingCount = await getFollowingCount(userId);
     const engagementTotals = await getUserEngagementTotals(userId);
     const userTraces = getUserContentLocal(userId) || [];
+    const successCount = userTraces.filter((t) => t?.state === "success").length;
+    const failureCount = userTraces.filter((t) => t?.state === "failure").length;
+    const successRatio =
+        userTraces.length > 0
+            ? Math.round((successCount / userTraces.length) * 100)
+            : 0;
+    const latestTrace = userTraces.length > 0 ? userTraces[0] : null;
+    const latestTraceLabel = latestTrace
+        ? `Jour ${latestTrace.dayNumber || latestTrace.day_number || "-"}`
+        : "Aucune";
+    const progressSnapshotHtml = `
+        <div class="profile-progress-snapshot">
+            <div class="snapshot-item">
+                <div class="snapshot-label">Dernière trace</div>
+                <div class="snapshot-value">${latestTraceLabel}</div>
+            </div>
+            <div class="snapshot-item">
+                <div class="snapshot-label">Taux réussite</div>
+                <div class="snapshot-value">${successRatio}%</div>
+            </div>
+            <div class="snapshot-item">
+                <div class="snapshot-label">Blocages</div>
+                <div class="snapshot-value">${failureCount}</div>
+            </div>
+        </div>
+    `;
     const showVerificationCta = isOwnProfile && !isCurrentUserVerified();
     const verificationCtaHtml = showVerificationCta
         ? `
@@ -8775,6 +8801,7 @@ async function renderProfileTimeline(userId) {
                     </div>
                 </div>
                 ${engagementStatsHtml}
+                ${progressSnapshotHtml}
                 <div class="profile-actions" style="margin-top:6px; display:flex; gap:8px; align-items:center; justify-content:center;">
                     ${followButtonHtml}
                     ${messageButtonHtml}
@@ -8794,6 +8821,7 @@ async function renderProfileTimeline(userId) {
                     </div>
                 </div>
                 ${engagementStatsHtml}
+                ${progressSnapshotHtml}
                 ${verificationCtaHtml}
                 <div class="profile-actions" style="margin-top:6px; display:flex; gap:8px; align-items:center;"> 
                     <button class="btn-add" onclick="openCreateMenu('${userId}')" title="Ajouter une trace">
@@ -11174,6 +11202,39 @@ async function openCreateMenu(
             // Appliquer immédiatement le bon mode de sélection (single/multiple)
             // selon le type courant, sans attendre une action utilisateur.
             typeSelect.dispatchEvent(new Event("change"));
+        }
+
+        if (fileInput && fileInput.dataset.durationHintBound !== "1") {
+            fileInput.dataset.durationHintBound = "1";
+            fileInput.addEventListener("change", async () => {
+                if (!videoDurationHint) return;
+                videoDurationHint.textContent = "";
+                const file = fileInput.files && fileInput.files[0];
+                if (!file) return;
+                const isVideoSelection =
+                    (typeof isLikelyVideoFile === "function" && isLikelyVideoFile(file)) ||
+                    String(file.type || "").startsWith("video/");
+                if (!isVideoSelection) return;
+                if (typeof readVideoDurationSeconds !== "function") return;
+
+                try {
+                    const seconds = await readVideoDurationSeconds(file);
+                    const mins = Math.floor(seconds / 60);
+                    const secs = Math.round(seconds % 60)
+                        .toString()
+                        .padStart(2, "0");
+                    if (seconds > 60 * 60) {
+                        videoDurationHint.style.color = "#ef4444";
+                        videoDurationHint.textContent = `Durée détectée: ${mins}:${secs} (max 60:00)`;
+                    } else {
+                        videoDurationHint.style.color = "#10b981";
+                        videoDurationHint.textContent = `Durée détectée: ${mins}:${secs}`;
+                    }
+                } catch (e) {
+                    videoDurationHint.style.color = "var(--text-secondary)";
+                    videoDurationHint.textContent = "Impossible de lire la durée de cette vidéo.";
+                }
+            });
         }
 
         // Live URL handler
