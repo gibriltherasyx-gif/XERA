@@ -8383,20 +8383,50 @@ async function renderProfileTimeline(userId) {
             });
         });
     } else {
-        // Logique normale: timeline complète par jour avec trous
-        const maxDay = displayContents.reduce(
-            (max, c) => Math.max(max, getDayNumberValue(c)),
-            0,
-        );
-        for (let day = maxDay; day >= 1; day--) {
-            const dayContent = displayContents.find(
-                (c) => getDayNumberValue(c) === day,
+        const dayNumbers = (displayContents || []).map(getDayNumberValue);
+        const positiveDays = dayNumbers.filter((d) => d > 0);
+        const hasNonPositiveDay = dayNumbers.some((d) => !d || d <= 0);
+        const hasDuplicatePositiveDays =
+            positiveDays.length !== new Set(positiveDays).size;
+        const arcIds = (displayContents || [])
+            .map((c) => c?.arcId || c?.arc?.id || null)
+            .filter(Boolean);
+        const hasMultipleArcs = new Set(arcIds).size > 1;
+
+        // On the global profile timeline, day numbers can clash across ARCs or be missing (0).
+        // In these cases, prefer a chronological timeline so nothing "disappears".
+        const useChronological =
+            hasMultipleArcs || hasDuplicatePositiveDays || hasNonPositiveDay;
+
+        if (useChronological) {
+            const getContentTime = (c) => {
+                const raw = c?.createdAt || c?.created_at || c?.started_at || 0;
+                const t = new Date(raw).getTime();
+                return Number.isFinite(t) ? t : 0;
+            };
+            const sorted = [...(displayContents || [])].sort(
+                (a, b) => getContentTime(b) - getContentTime(a),
             );
-            timeline.push({
-                dayNumber: day,
-                content: dayContent || null,
-                state: dayContent ? dayContent.state : "empty",
+            sorted.forEach((content) => {
+                timeline.push({
+                    dayNumber: getDayNumberValue(content),
+                    content,
+                    state: content.state,
+                });
             });
+        } else {
+            // Single ARC with clean day numbers: timeline complète par jour avec trous
+            const maxDay = positiveDays.reduce((max, d) => Math.max(max, d), 0);
+            for (let day = maxDay; day >= 1; day--) {
+                const dayContent = displayContents.find(
+                    (c) => getDayNumberValue(c) === day,
+                );
+                timeline.push({
+                    dayNumber: day,
+                    content: dayContent || null,
+                    state: dayContent ? dayContent.state : "empty",
+                });
+            }
         }
     }
 
