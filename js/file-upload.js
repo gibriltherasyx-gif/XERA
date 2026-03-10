@@ -374,6 +374,8 @@ function initializeFileInput(inputId, options = {}) {
     const onUploadBatch = options.onUploadBatch;
     const onBeforeUpload = options.onBeforeUpload;
     const onAfterUpload = options.onAfterUpload;
+    const onProgress = options.onProgress;
+    const folder = options.folder;
     const resolveMultiple = () =>
         typeof options.multiple === "function"
             ? !!options.multiple()
@@ -392,6 +394,8 @@ function initializeFileInput(inputId, options = {}) {
             validate,
             onBeforeUpload,
             onAfterUpload,
+            onProgress,
+            folder,
         });
         input.value = "";
 
@@ -428,6 +432,8 @@ function initializeFileInput(inputId, options = {}) {
                 validate,
                 onBeforeUpload,
                 onAfterUpload,
+                onProgress,
+                folder,
             });
 
             if (typeof onUploadBatch === "function") {
@@ -453,8 +459,34 @@ async function handleFileSelection(
     const validate = options.validate;
     const onBeforeUpload = options.onBeforeUpload;
     const onAfterUpload = options.onAfterUpload;
+    const onProgress = options.onProgress;
+    const folder = options.folder || "content";
+    const totalFiles = Array.isArray(files) ? files.length : 0;
+    let fileIndex = 0;
 
     for (const file of files) {
+        const currentIndex = fileIndex;
+        fileIndex += 1;
+        const reportProgress = (filePercent) => {
+            if (typeof onProgress !== "function") return;
+            const safePercent =
+                typeof filePercent === "number" && Number.isFinite(filePercent)
+                    ? Math.max(0, Math.min(100, filePercent))
+                    : 0;
+            const overallPercent =
+                totalFiles > 0
+                    ? Math.round(
+                          ((currentIndex + safePercent / 100) / totalFiles) * 100,
+                      )
+                    : safePercent;
+            onProgress(overallPercent, {
+                filePercent: safePercent,
+                fileIndex: currentIndex,
+                totalFiles,
+                file,
+            });
+        };
+
         if (typeof validate === "function") {
             const validation = validate(file);
             if (validation === false) {
@@ -509,7 +541,7 @@ async function handleFileSelection(
         }
         let result;
         try {
-            result = await uploadFile(fileToUpload);
+            result = await uploadFile(fileToUpload, folder, reportProgress);
         } finally {
             if (typeof onAfterUpload === "function") {
                 try {
