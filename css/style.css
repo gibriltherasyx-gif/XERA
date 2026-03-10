@@ -253,6 +253,34 @@ body {
     color: var(--text-secondary);
 }
 
+.media-preview-shell {
+    position: relative;
+    display: inline-block;
+    max-width: 100%;
+}
+
+.media-remove-btn {
+    position: absolute;
+    top: 8px;
+    right: 8px;
+    width: 26px;
+    height: 26px;
+    border-radius: 50%;
+    border: 1px solid rgba(255, 255, 255, 0.35);
+    background: rgba(0, 0, 0, 0.55);
+    color: #fff;
+    font-size: 0.95rem;
+    font-weight: 700;
+    line-height: 24px;
+    text-align: center;
+    cursor: pointer;
+    z-index: 2;
+}
+
+.media-remove-btn:hover {
+    background: rgba(0, 0, 0, 0.75);
+}
+
 .click-loading {
     animation: clickPulse 0.9s ease-in-out infinite;
     filter: brightness(1);

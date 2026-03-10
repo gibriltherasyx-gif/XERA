@@ -246,6 +246,14 @@ async function uploadFile(file, folder = "content", onProgress) {
             data: { publicUrl },
         } = supabase.storage.from("media").getPublicUrl(fileName);
 
+        if (typeof onProgress === "function") {
+            try {
+                onProgress(100);
+            } catch (e) {
+                // ignore progress errors
+            }
+        }
+
         return {
             success: true,
             url: publicUrl,

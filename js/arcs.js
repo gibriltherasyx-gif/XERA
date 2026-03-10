@@ -346,7 +346,7 @@ function renderArcCreationForm(arcToEdit = null) {
 	                     placeholder.style.display = 'none';
 	                     previewContainer.style.display = 'none';
 	                     loader.style.display = 'block';
-	                     setUploadProgressIndeterminate();
+	                     setUploadProgress(0);
 	                 }
 	            });
 
@@ -357,11 +357,14 @@ function renderArcCreationForm(arcToEdit = null) {
 	                    placeholder.style.display = 'none';
 	                    previewContainer.style.display = 'none';
 	                    loader.style.display = 'block';
-	                    setUploadProgressIndeterminate();
+	                    setUploadProgress(0);
 	                },
 	                onProgress: (percent) => setUploadProgress(percent),
 	                onUpload: (result) => {
 	                    loader.style.display = 'none';
+	                    if (result && result.success) {
+	                        setUploadProgress(100);
+	                    }
 	                    setUploadProgressIndeterminate();
 	                    
 	                    if (result.success) {

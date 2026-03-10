@@ -11077,31 +11077,58 @@ async function openCreateMenu(
         const mediaUrlInput = document.getElementById("create-media-url");
         const mediaTypeInput = document.getElementById("create-media-type");
 
-	        const dropZone = document.getElementById("create-media-dropzone");
-	        const loader = document.getElementById("create-media-loader");
-	        const progressBar = document.getElementById("create-media-progress-bar");
-	        const progressLabel = document.getElementById(
-	            "create-media-progress-label",
-	        );
+        const dropZone = document.getElementById("create-media-dropzone");
+        const loader = document.getElementById("create-media-loader");
+        const progressBar = document.getElementById("create-media-progress-bar");
+        const progressLabel = document.getElementById(
+            "create-media-progress-label",
+        );
 
-	        const setUploadProgressIndeterminate = () => {
-	            if (progressBar) {
-	                progressBar.classList.add("is-indeterminate");
-	                progressBar.style.width = "";
-	            }
-	            if (progressLabel) progressLabel.textContent = "";
-	        };
+        const setUploadProgressIndeterminate = () => {
+            if (progressBar) {
+                progressBar.classList.add("is-indeterminate");
+                progressBar.style.width = "";
+            }
+            if (progressLabel) progressLabel.textContent = "";
+        };
 
-	        const setUploadProgress = (percent) => {
-	            if (!progressBar) return;
-	            const safePercent =
-	                typeof percent === "number" && Number.isFinite(percent)
-	                    ? Math.max(0, Math.min(100, Math.round(percent)))
-	                    : 0;
-	            progressBar.classList.remove("is-indeterminate");
-	            progressBar.style.width = `${safePercent}%`;
-	            if (progressLabel) progressLabel.textContent = `${safePercent}%`;
-	        };
+        const setUploadProgress = (percent) => {
+            if (!progressBar) return;
+            const safePercent =
+                typeof percent === "number" && Number.isFinite(percent)
+                    ? Math.max(0, Math.min(100, Math.round(percent)))
+                    : 0;
+            progressBar.classList.remove("is-indeterminate");
+            progressBar.style.width = `${safePercent}%`;
+            if (progressLabel) progressLabel.textContent = `${safePercent}%`;
+        };
+
+        const buildMediaPreviewShell = (innerHtml) => `
+            <div class="media-preview-shell">
+                <button type="button" class="media-remove-btn" title="Retirer le media">X</button>
+                ${innerHtml}
+            </div>
+        `;
+
+        const clearMediaSelection = () => {
+            mediaUrlInput.value = "";
+            mediaUrlsInput.value = "";
+            if (fileInput) fileInput.value = "";
+            previewContainer.innerHTML = "";
+            previewContainer.style.display = "none";
+            placeholder.style.display = "block";
+        };
+
+        if (previewContainer && !previewContainer.dataset.clearHandler) {
+            previewContainer.addEventListener("click", (e) => {
+                const btn = e.target.closest(".media-remove-btn");
+                if (!btn) return;
+                e.preventDefault();
+                e.stopPropagation();
+                clearMediaSelection();
+            });
+            previewContainer.dataset.clearHandler = "true";
+        }
 
         const typeButtons = Array.from(
             container.querySelectorAll(".type-quick button"),
@@ -11293,16 +11320,16 @@ async function openCreateMenu(
 	        // Custom handler to show loader
 	        fileInput.addEventListener("change", () => {
 	            if (fileInput.files.length > 0) {
-	                isMediaUploadInProgress = true;
-	                mediaUploadUiArmed = true;
-	                placeholder.style.display = "none";
-	                previewContainer.style.display = "none";
-	                loader.style.display = "block";
-	                setUploadProgressIndeterminate();
-	            }
-	        });
+                isMediaUploadInProgress = true;
+                mediaUploadUiArmed = true;
+                placeholder.style.display = "none";
+                previewContainer.style.display = "none";
+                loader.style.display = "block";
+                setUploadProgress(0);
+            }
+        });
 
-	        const updateMultiPreview = (urls = []) => {
+        const updateMultiPreview = (urls = []) => {
             const clean = (urls || []).filter(Boolean);
             if (clean.length === 0) {
                 previewContainer.style.display = "none";
@@ -11323,43 +11350,46 @@ async function openCreateMenu(
                           )
                           .join("")}</div>`
                     : "";
-            previewContainer.innerHTML = `
+            previewContainer.innerHTML = buildMediaPreviewShell(`
                 <div class="xera-carousel" data-carousel>
                     <div class="xera-carousel-track">${slides}</div>
                     ${dots}
                 </div>
-            `;
+            `);
         };
 
 	        initializeFileInput("create-media-file", {
 	            dropZone: dropZone,
 	            compress: true,
 	            multiple: () => !!fileInput.multiple,
-	            onBeforeUpload: () => {
-	                isMediaUploadInProgress = true;
-	                if (!mediaUploadUiArmed) {
-	                    mediaUploadUiArmed = true;
-	                    placeholder.style.display = "none";
-	                    previewContainer.style.display = "none";
-	                    loader.style.display = "block";
-	                    setUploadProgressIndeterminate();
-	                }
-	            },
+            onBeforeUpload: () => {
+                isMediaUploadInProgress = true;
+                if (!mediaUploadUiArmed) {
+                    mediaUploadUiArmed = true;
+                    placeholder.style.display = "none";
+                    previewContainer.style.display = "none";
+                    loader.style.display = "block";
+                    setUploadProgress(0);
+                }
+            },
 	            onProgress: (percent) => setUploadProgress(percent),
 	            onUpload: (result) => {
 	                if (!result?.success) {
 	                    alert("Erreur upload: " + (result?.error || "inconnue"));
 	                }
 	            },
-	            onUploadBatch: (results) => {
-	                isMediaUploadInProgress = false;
-	                mediaUploadUiArmed = false;
-	                loader.style.display = "none";
-	                setUploadProgressIndeterminate();
-	                const successful = (results || []).filter(
-	                    (r) => r && r.success && r.url,
-	                );
-	                const successUrls = successful.map((r) => r.url);
+            onUploadBatch: (results) => {
+                isMediaUploadInProgress = false;
+                mediaUploadUiArmed = false;
+                const successful = (results || []).filter(
+                    (r) => r && r.success && r.url,
+                );
+                const successUrls = successful.map((r) => r.url);
+                if (successUrls.length > 0) {
+                    setUploadProgress(100);
+                }
+                loader.style.display = "none";
+                setUploadProgressIndeterminate();
 
                 if (successUrls.length === 0) {
                     placeholder.style.display = "block";
@@ -11377,9 +11407,11 @@ async function openCreateMenu(
                 placeholder.style.display = "none";
 
                 if (successful[0]?.type === "video") {
-                    previewContainer.innerHTML = `<video src="${successUrls[0]}" controls style="max-width: 100%; max-height: 300px; border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.2);"></video>`;
-                    return;
-                }
+                previewContainer.innerHTML = buildMediaPreviewShell(
+                    `<video src="${successUrls[0]}" controls style="max-width: 100%; max-height: 300px; border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.2);"></video>`,
+                );
+                return;
+            }
 
                 if (successUrls.length > 1) {
                     updateMultiPreview(successUrls);
@@ -11391,9 +11423,11 @@ async function openCreateMenu(
                     return;
                 }
 
-                previewContainer.innerHTML = `<img src="${successUrls[0]}" style="max-width: 100%; max-height: 300px; border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.2);">`;
-            },
-        });
+            previewContainer.innerHTML = buildMediaPreviewShell(
+                `<img src="${successUrls[0]}" style="max-width: 100%; max-height: 300px; border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.2);">`,
+            );
+        },
+    });
     }
 
     // Préremplir les champs existants si édition
@@ -11419,7 +11453,9 @@ async function openCreateMenu(
                         /* ignore */
                     }
                 } else {
-                    previewContainer.innerHTML = `<img src="${mediaUrl}" style="max-width: 100%; max-height: 300px; border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.2);">`;
+                    previewContainer.innerHTML = buildMediaPreviewShell(
+                        `<img src="${mediaUrl}" style="max-width: 100%; max-height: 300px; border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.2);">`,
+                    );
                 }
             }
         } else if (existingContent.type === "image") {
@@ -11439,7 +11475,9 @@ async function openCreateMenu(
                         /* ignore */
                     }
                 } else {
-                    previewContainer.innerHTML = `<img src="${mediaUrl}" style="max-width: 100%; max-height: 300px; border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.2);">`;
+                    previewContainer.innerHTML = buildMediaPreviewShell(
+                        `<img src="${mediaUrl}" style="max-width: 100%; max-height: 300px; border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.2);">`,
+                    );
                 }
             }
         } else if (existingContent.type === "video") {
@@ -11450,7 +11488,9 @@ async function openCreateMenu(
             if (mediaUrl) {
                 placeholder.style.display = "none";
                 previewContainer.style.display = "block";
-                previewContainer.innerHTML = `<video src="${mediaUrl}" controls style="max-width: 100%; max-height: 300px; border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.2);"></video>`;
+                previewContainer.innerHTML = buildMediaPreviewShell(
+                    `<video src="${mediaUrl}" controls style="max-width: 100%; max-height: 300px; border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.2);"></video>`,
+                );
             }
         } else if (existingContent.type === "live") {
             uploadContainer.style.display = "none";
