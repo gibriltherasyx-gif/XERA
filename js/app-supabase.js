@@ -5016,6 +5016,7 @@ function handleDiscoverInterest(contentId, action) {
     const tags = Array.isArray(content.tags) ? content.tags : [];
     const delta = action === "dislike" ? -1.5 : 2.2;
     adjustMoodScores(tags, delta);
+    updateImmersivePrefs(content, action === "dislike" ? "dislike" : "like");
     if (action === "dislike") {
         ToastManager?.info("Flux ajusté", "Nous vous montrerons moins ce sujet.");
     } else {
@@ -6209,35 +6210,103 @@ function getAllFeedContent() {
     );
 }
 
+function getDefaultImmersivePrefs() {
+    return {
+        types: {},
+        states: {},
+        users: {},
+        tags: {},
+        queries: {},
+        seen: {},
+        updatedAt: Date.now(),
+    };
+}
+
 function loadImmersivePrefs() {
+    const legacyKey = "immersive_prefs_v1";
+    const storageKey = getImmersivePrefsStorageKey();
+    const migrationFlagKey = "immersive_prefs_v1:migrated";
+
     try {
-        const raw = localStorage.getItem("immersive_prefs_v1");
-        if (!raw)
-            return {
-                types: {},
-                states: {},
-                users: {},
-                tags: {},
-                queries: {},
-                seen: {},
-            };
+        let raw = localStorage.getItem(storageKey);
+
+        // One-time migration from legacy global key to the active scoped key.
+        if (!raw && !localStorage.getItem(migrationFlagKey)) {
+            const legacyRaw = localStorage.getItem(legacyKey);
+            if (legacyRaw) {
+                raw = legacyRaw;
+                localStorage.setItem(storageKey, legacyRaw);
+            }
+            localStorage.setItem(migrationFlagKey, "1");
+        }
+
+        if (!raw) return getDefaultImmersivePrefs();
+
         const parsed = JSON.parse(raw);
-        return {
-            types: parsed.types || {},
-            states: parsed.states || {},
-            users: parsed.users || {},
-            tags: parsed.tags || {},
-            queries: parsed.queries || {},
-            seen: parsed.seen || {},
+        const prefs = {
+            types: parsed?.types || {},
+            states: parsed?.states || {},
+            users: parsed?.users || {},
+            tags: parsed?.tags || {},
+            queries: parsed?.queries || {},
+            seen: parsed?.seen || {},
+            updatedAt: Number(parsed?.updatedAt) || Date.now(),
         };
+
+        const { prefs: decayedPrefs, changed } = applyTemporalDecayToPrefs(prefs);
+        if (changed) saveImmersivePrefs(decayedPrefs);
+        return decayedPrefs;
     } catch (e) {
-        return { types: {}, states: {}, users: {}, tags: {}, queries: {}, seen: {} };
+        return getDefaultImmersivePrefs();
     }
+}
+
+function getImmersivePrefsStorageKey() {
+    const userId = currentUser?.id;
+    return userId ? `immersive_prefs_v1:${userId}` : "immersive_prefs_v1:guest";
+}
+
+function applyDecayToMap(map, factor, floor = 0.02) {
+    const source = map || {};
+    const output = {};
+    Object.entries(source).forEach(([key, value]) => {
+        const next = (Number(value) || 0) * factor;
+        if (Math.abs(next) >= floor) output[key] = next;
+    });
+    return output;
+}
+
+function applyTemporalDecayToPrefs(prefs) {
+    const now = Date.now();
+    const updatedAt = Number(prefs?.updatedAt) || now;
+    const elapsedMs = Math.max(0, now - updatedAt);
+    const minDecayIntervalMs = 1000 * 60 * 60 * 6;
+
+    if (elapsedMs < minDecayIntervalMs) {
+        return { prefs, changed: false };
+    }
+
+    const elapsedDays = elapsedMs / (1000 * 60 * 60 * 24);
+    const halfLifeDays = 30;
+    const factor = Math.pow(0.5, elapsedDays / halfLifeDays);
+    const decayed = {
+        ...prefs,
+        types: applyDecayToMap(prefs.types, factor),
+        states: applyDecayToMap(prefs.states, factor),
+        users: applyDecayToMap(prefs.users, factor),
+        tags: applyDecayToMap(prefs.tags, factor),
+        queries: applyDecayToMap(prefs.queries, factor),
+        updatedAt: now,
+    };
+    return { prefs: decayed, changed: true };
 }
 
 function saveImmersivePrefs(prefs) {
     try {
-        localStorage.setItem("immersive_prefs_v1", JSON.stringify(prefs));
+        localStorage.setItem(
+            getImmersivePrefsStorageKey(),
+            JSON.stringify({ ...prefs, updatedAt: Date.now() }),
+        );
     } catch (e) {
         // Ignore storage errors
     }
@@ -6305,12 +6374,22 @@ function pruneSeen(seenMap, maxEntries = 600) {
 function updateImmersivePrefs(content, action) {
     if (!content) return;
     const prefs = loadImmersivePrefs();
-    const weight = action === "like" ? 2.4 : action === "view" ? 0.35 : 0.6;
+    const weight =
+        action === "like"
+            ? 2.4
+            : action === "dislike"
+              ? -1.8
+              : action === "view"
+                ? 0.35
+                : 0.6;
     bumpPref(prefs.types, content.type, weight);
     bumpPref(prefs.states, content.state, weight * 0.6);
     bumpPref(prefs.users, content.userId, weight * 0.9);
     if (Array.isArray(content.tags)) {
-        content.tags.forEach((tag) => bumpPref(prefs.tags, tag, weight * 0.75));
+        content.tags
+            .map((tag) => String(tag || "").trim().toLowerCase())
+            .filter(Boolean)
+            .forEach((tag) => bumpPref(prefs.tags, tag, weight * 0.75));
     }
     prefs.seen[content.contentId] = Date.now();
     prefs.types = prunePrefsObject(prefs.types, 80);
@@ -6337,8 +6416,9 @@ function recordSearchPreference(query) {
     if (tokens.length === 0) return;
     const prefs = loadImmersivePrefs();
     tokens.forEach((token) => {
-        bumpPref(prefs.tags, token, 0.9);
-        bumpPref(prefs.queries, token, 1.1);
+        const normalized = token.toLowerCase();
+        bumpPref(prefs.tags, normalized, 0.9);
+        bumpPref(prefs.queries, normalized, 1.1);
     });
     prefs.tags = prunePrefsObject(prefs.tags, 120);
     prefs.queries = prunePrefsObject(prefs.queries, 120);
@@ -6503,9 +6583,10 @@ function scoreImmersiveContent(content, context) {
         : now;
     const ageHours = Math.max(0, (now - createdAt) / (1000 * 60 * 60));
     const recency = Math.exp(-ageHours / 72); // 3 days half-ish
-    const engagement =
-        Math.log1p(content.encouragementsCount || 0) * 1.2 +
-        Math.log1p(content.views || 0) * 0.5;
+    const engagementRaw =
+        Math.log1p(content.encouragementsCount || 0) * 1.15 +
+        Math.log1p(content.views || 0) * 0.42;
+    const engagement = Math.min(4.2, engagementRaw) * (0.6 + recency * 0.4);
     const followBoost =
         context.followedSet && context.followedSet.has(content.userId)
             ? 2.0
@@ -6525,7 +6606,10 @@ function scoreImmersiveContent(content, context) {
     const userPref = (context.prefs.users[content.userId] || 0) * 0.7;
     const tagPref = Array.isArray(content.tags)
         ? content.tags.reduce(
-              (sum, tag) => sum + (context.prefs.tags[tag] || 0) * 0.55,
+              (sum, tag) =>
+                  sum +
+                  (context.prefs.tags[String(tag || "").toLowerCase()] || 0) *
+                      0.55,
               0,
           )
         : 0;
@@ -6621,7 +6705,16 @@ async function getPersonalizedFeed(contents) {
 function markExplorationInterest(scoredItems) {
     if (!Array.isArray(scoredItems) || scoredItems.length === 0) return;
 
-    const targetRaw = Math.round(scoredItems.length * IMMERSIVE_EXPLORATION_RATIO);
+    const viewer = currentUser?.id;
+    const prefs = viewer ? loadImmersivePrefs() : null;
+    const hasHistory =
+        prefs &&
+        ((Object.keys(prefs.tags || {}).length >= 8 &&
+            Object.keys(prefs.users || {}).length >= 5) ||
+            Object.keys(prefs.queries || {}).length >= 10);
+    const explorationRatio = hasHistory ? IMMERSIVE_EXPLORATION_RATIO : 0.2;
+
+    const targetRaw = Math.round(scoredItems.length * explorationRatio);
     const targetCount = Math.max(1, targetRaw);
 
     const candidates = scoredItems.filter(
@@ -8182,6 +8275,32 @@ async function renderProfileTimeline(userId) {
     const followingCount = await getFollowingCount(userId);
     const engagementTotals = await getUserEngagementTotals(userId);
     const userTraces = getUserContentLocal(userId) || [];
+    const successCount = userTraces.filter((t) => t?.state === "success").length;
+    const failureCount = userTraces.filter((t) => t?.state === "failure").length;
+    const successRatio =
+        userTraces.length > 0
+            ? Math.round((successCount / userTraces.length) * 100)
+            : 0;
+    const latestTrace = userTraces.length > 0 ? userTraces[0] : null;
+    const latestTraceLabel = latestTrace
+        ? `Jour ${latestTrace.dayNumber || latestTrace.day_number || "-"}`
+        : "Aucune";
+    const progressSnapshotHtml = `
+        <div class="profile-progress-snapshot">
+            <div class="snapshot-item">
+                <div class="snapshot-label">Dernière trace</div>
+                <div class="snapshot-value">${latestTraceLabel}</div>
+            </div>
+            <div class="snapshot-item">
+                <div class="snapshot-label">Taux réussite</div>
+                <div class="snapshot-value">${successRatio}%</div>
+            </div>
+            <div class="snapshot-item">
+                <div class="snapshot-label">Blocages</div>
+                <div class="snapshot-value">${failureCount}</div>
+            </div>
+        </div>
+    `;
     const showVerificationCta = isOwnProfile && !isCurrentUserVerified();
     const verificationCtaHtml = showVerificationCta
         ? `
@@ -8679,6 +8798,7 @@ async function renderProfileTimeline(userId) {
                     </div>
                 </div>
                 ${engagementStatsHtml}
+                ${progressSnapshotHtml}
                 <div class="profile-actions" style="margin-top:6px; display:flex; gap:8px; align-items:center; justify-content:center;">
                     ${followButtonHtml}
                     ${messageButtonHtml}
@@ -8698,6 +8818,7 @@ async function renderProfileTimeline(userId) {
                     </div>
                 </div>
                 ${engagementStatsHtml}
+                ${progressSnapshotHtml}
                 ${verificationCtaHtml}
                 <div class="profile-actions" style="margin-top:6px; display:flex; gap:8px; align-items:center;"> 
                     <button class="btn-add" onclick="openCreateMenu('${userId}')" title="Ajouter une trace">
@@ -10865,7 +10986,8 @@ async function openCreateMenu(
                                     <line x1="12" y1="3" x2="12" y2="15"></line>
                                 </svg>
                                 <p style="color: var(--text-secondary); font-size: 0.9rem;">Cliquez ou glissez un fichier ici</p>
-                                <p style="color: var(--text-secondary); font-size: 0.75rem; opacity: 0.7;">JPG, PNG, GIF, MP4</p>
+                                <p style="color: var(--text-secondary); font-size: 0.75rem; opacity: 0.7;">Images + vidéos (max 60 min)</p>
+                                <p id="create-video-duration-hint" style="color: var(--text-secondary); font-size: 0.75rem; opacity: 0.8; margin-top: 0.25rem;"></p>
                             </div>
                         </div>
                         <input type="file" id="create-media-file" accept="image/*,video/*" style="display: none;">
@@ -10905,6 +11027,7 @@ async function openCreateMenu(
     const liveInput = document.getElementById("create-live-url");
     const fileInput = document.getElementById("create-media-file");
     const mediaUrlsInput = document.getElementById("create-media-urls");
+    const videoDurationHint = document.getElementById("create-video-duration-hint");
     const dayGroup = container.querySelector(".form-group-day");
     const stateGroup = container.querySelector(".form-group-state");
     const arcGroup = container.querySelector(".form-group-arc");
@@ -11050,6 +11173,39 @@ async function openCreateMenu(
             // Appliquer immédiatement le bon mode de sélection (single/multiple)
             // selon le type courant, sans attendre une action utilisateur.
             typeSelect.dispatchEvent(new Event("change"));
+        }
+
+        if (fileInput && fileInput.dataset.durationHintBound !== "1") {
+            fileInput.dataset.durationHintBound = "1";
+            fileInput.addEventListener("change", async () => {
+                if (!videoDurationHint) return;
+                videoDurationHint.textContent = "";
+                const file = fileInput.files && fileInput.files[0];
+                if (!file) return;
+                const isVideoSelection =
+                    (typeof isLikelyVideoFile === "function" && isLikelyVideoFile(file)) ||
+                    String(file.type || "").startsWith("video/");
+                if (!isVideoSelection) return;
+                if (typeof readVideoDurationSeconds !== "function") return;
+
+                try {
+                    const seconds = await readVideoDurationSeconds(file);
+                    const mins = Math.floor(seconds / 60);
+                    const secs = Math.round(seconds % 60)
+                        .toString()
+                        .padStart(2, "0");
+                    if (seconds > 60 * 60) {
+                        videoDurationHint.style.color = "#ef4444";
+                        videoDurationHint.textContent = `Durée détectée: ${mins}:${secs} (max 60:00)`;
+                    } else {
+                        videoDurationHint.style.color = "#10b981";
+                        videoDurationHint.textContent = `Durée détectée: ${mins}:${secs}`;
+                    }
+                } catch (e) {
+                    videoDurationHint.style.color = "var(--text-secondary)";
+                    videoDurationHint.textContent = "Impossible de lire la durée de cette vidéo.";
+                }
+            });
         }
 
         // Live URL handler
