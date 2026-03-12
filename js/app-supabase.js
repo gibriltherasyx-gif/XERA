@@ -9539,12 +9539,9 @@ function initDiscoverMoodTracking() {
 
 function initTheme() {
     const savedTheme = localStorage.getItem("rize-theme");
-    const systemPrefersLight = window.matchMedia?.("(prefers-color-scheme: light)")?.matches;
     const initialTheme = savedTheme === "light" || savedTheme === "dark"
         ? savedTheme
-        : systemPrefersLight
-          ? "light"
-          : "dark";
+        : "dark";
 
     applyTheme(initialTheme, false);
 
