@@ -9249,7 +9249,13 @@ window.renderWeeklyProgressChart = async function (userId) {
 function syncFloatingCreateVisibility(pageId) {
     const container = document.getElementById("floating-create-container");
     if (!container) return;
-    container.style.display = pageId === "messages" ? "none" : "";
+    
+    const isLoggedIn = !!window.currentUser;
+    if (!isLoggedIn || pageId === "messages") {
+        container.style.display = "none";
+    } else {
+        container.style.display = "flex";
+    }
 }
 
 function navigateTo(pageId) {
