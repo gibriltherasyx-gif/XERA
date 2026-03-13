@@ -5142,6 +5142,16 @@ function renderUserCard(
               : "#6366f1";
 
     const badgesHtml = renderUserBadges(userId);
+    const monetizationBadgeHtml =
+        typeof window.generatePlanBadgeHTML === "function"
+            ? window.generatePlanBadgeHTML(user)
+            : "";
+    const supportButtonHtml =
+        currentUser &&
+        currentUser.id !== userId &&
+        typeof window.generateSupportButtonHTML === "function"
+            ? window.generateSupportButtonHTML(user, "feed")
+            : "";
 
     const tags = Array.isArray(latestContent.tags) ? latestContent.tags : [];
     const collabCornerHtml = buildArcCollaboratorCornerAvatars(latestContent, {
@@ -5327,7 +5337,7 @@ function renderUserCard(
             <button class="profile-link" onclick="event.stopPropagation(); handleProfileClick('${userId}', this)">
                 <img src="${user.avatar || "https://placehold.co/40"}" class="card-avatar" style="width: 32px; height: 32px;" loading="lazy" decoding="async">
                 <div class="profile-link-text" style="flex: 1; min-width: 0;">
-                    <h3 class="discover-user-name" style="margin:0; font-size: 0.9rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">${renderUsernameWithBadge(user.name, user.id)}</h3>
+                    <h3 class="discover-user-name" style="margin:0; font-size: 0.9rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">${renderUsernameWithBadge(user.name, user.id)}${monetizationBadgeHtml}</h3>
                     <div style="font-size: 0.7rem; color: var(--text-secondary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">${user.title || ""}</div>
                 </div>
             </button>
@@ -5427,8 +5437,11 @@ function renderUserCard(
                 </div>
                 
                 ${textHtml}
-                <div style="display:flex; justify-content:space-between; align-items:center;">
-                    ${badgesHtml}
+                <div style="display:flex; justify-content:space-between; align-items:center; gap:0.5rem;">
+                    <div style="display:flex; align-items:center; gap:0.5rem; flex-wrap:wrap;">
+                        ${badgesHtml}
+                        ${supportButtonHtml}
+                    </div>
                     <button class="${courageClass}" data-content-id="${latestContent.contentId}" onclick="event.stopPropagation(); toggleCourage('${latestContent.contentId}', this)">
                         <img src="${courageIcon}" width="16" height="16">
                         <span class="courage-count">${latestContent.encouragementsCount || 0}</span>
@@ -8846,6 +8859,16 @@ async function renderProfileTimeline(userId) {
 
     const hasArcs = Array.isArray(userArcs) && userArcs.length > 0;
     const profileRoleBadgeHtml = renderProfileRoleBadgeByUser(user);
+    const monetizationBadgeHtml =
+        typeof window.generatePlanBadgeHTML === "function"
+            ? window.generatePlanBadgeHTML(user)
+            : "";
+    const supportButtonHtml =
+        !isOwnProfile &&
+        window.currentUser &&
+        typeof window.generateSupportButtonHTML === "function"
+            ? window.generateSupportButtonHTML(user, "profile")
+            : "";
 
     const weeklyChartHtml = `
         <div class="weekly-progress-card" style="margin: 1.5rem 0; background: var(--surface-color); border: 1px solid var(--border-color); border-radius: 14px; padding: 1.25rem;">
@@ -8871,7 +8894,7 @@ async function renderProfileTimeline(userId) {
             <div class="profile-avatar-wrapper">
                 <img src="${user.avatar && (user.avatar.startsWith("http") || user.avatar.startsWith("data:")) ? withCacheBust(user.avatar) : "https://placehold.co/150"}" class="profile-avatar-img" alt="Avatar de ${user.name}" onclick="navigateToUserProfile('${userId}')" style="cursor: pointer;">
             </div>
-            <h2>${renderUsernameForProfile(user.name, user.id)}</h2>
+            <h2>${renderUsernameForProfile(user.name, user.id)}${monetizationBadgeHtml}</h2>
             ${profileRoleBadgeHtml}
             <p style="color: var(--text-secondary);"><strong>${user.title}</strong></p>
             <p class="profile-bio" style="max-width: 600px; margin: 0.5rem auto; line-height: 1.5;">${user.bio || ""}</p>
@@ -8897,6 +8920,7 @@ async function renderProfileTimeline(userId) {
                     ${followButtonHtml}
                     ${messageButtonHtml}
                     ${shareButtonHtml}
+                    ${supportButtonHtml}
                 </div>
                 ${adminInlineHtml}
             `

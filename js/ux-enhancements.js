@@ -124,6 +124,37 @@ class ToastManager {
     }
 }
 
+// Indicateur global d'état réseau
+class NetworkStatusBanner {
+    static init() {
+        if (this.initialized) return;
+        this.initialized = true;
+
+        this.banner = document.getElementById("network-status-banner");
+        if (!this.banner) {
+            this.banner = document.createElement("div");
+            this.banner.id = "network-status-banner";
+            this.banner.className = "network-status-banner";
+            this.banner.setAttribute("role", "status");
+            this.banner.setAttribute("aria-live", "polite");
+            this.banner.textContent =
+                "Hors connexion. Certaines actions sont indisponibles.";
+            document.body.appendChild(this.banner);
+        }
+
+        this.update();
+        window.addEventListener("online", () => this.update());
+        window.addEventListener("offline", () => this.update());
+    }
+
+    static update() {
+        if (!this.banner) return;
+        const isOnline =
+            typeof navigator === "undefined" ? true : navigator.onLine !== false;
+        this.banner.classList.toggle("is-visible", !isOnline);
+    }
+}
+
 // Gestion de la persistance de session
 class SessionManager {
     static SESSION_KEY = 'rize_user_session';
@@ -411,12 +442,14 @@ if (!document.getElementById('ux-enhancements-css')) {
 // Initialisation automatique
 document.addEventListener('DOMContentLoaded', () => {
     ToastManager.init();
+    NetworkStatusBanner.init();
     InteractionFeedback.initAll();
 });
 
 // Export global
 window.LoadingManager = LoadingManager;
 window.ToastManager = ToastManager;
+window.NetworkStatusBanner = NetworkStatusBanner;
 window.SessionManager = SessionManager;
 window.AnimationManager = AnimationManager;
 window.LoadingStateManager = LoadingStateManager;

@@ -22,7 +22,7 @@ self.addEventListener('activate', (event) => {
   );
 });
 
-const CACHE_NAME = 'xera-shell-v3';
+const CACHE_NAME = 'xera-shell-v4';
 
 function isSameOrigin(request) {
   try {
@@ -49,22 +49,6 @@ function isCacheableAsset(request) {
   if (url.pathname.endsWith('.html')) return true;
   if (url.pathname === '/' || url.pathname === '/index.html') return true;
   return false;
-}
-
-async function staleWhileRevalidate(request) {
-  const cache = await caches.open(CACHE_NAME);
-  const cached = await cache.match(request);
-
-  const fetchPromise = fetch(request)
-    .then((response) => {
-      if (response && response.ok) {
-        cache.put(request, response.clone());
-      }
-      return response;
-    })
-    .catch(() => null);
-
-  return cached || (await fetchPromise) || Response.error();
 }
 
 async function networkFirst(request) {
@@ -102,8 +86,8 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
-  // Static assets: stale-while-revalidate
-  event.respondWith(staleWhileRevalidate(request));
+  // Static assets: network-first so updates are visible immediately
+  event.respondWith(networkFirst(request));
 });
 
 self.addEventListener('message', (event) => {

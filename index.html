@@ -56,10 +56,15 @@
         <link rel="stylesheet" href="css/search-notification.css" />
         <link rel="stylesheet" href="css/arcs.css" />
         <link rel="stylesheet" href="css/streaming-analytics.css" />
+        <link id="monetization-css" rel="stylesheet" href="css/monetization.css" />
+        <link
+            rel="stylesheet"
+            href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css"
+        />
         <!-- Supabase JS -->
         <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
     </head>
-    <body>
+    <body class="has-mobile-nav">
         <!-- Container pour les notifications Toast -->
         <div id="toast-container"></div>
 
@@ -343,6 +348,7 @@
             </div>
         </section>
 
+        
         <!-- BOUTON RÉGLAGES (FIXED POSITION) -->
         <div id="settings-button-container"></div>
         <!-- Bouton flottant pour publier une trace -->
@@ -356,6 +362,8 @@
         <!-- Configuration Supabase -->
         <script src="js/telemetry.js" defer></script>
         <script src="js/supabase-config.js"></script>
+        <script src="js/monetization.js"></script>
+        <script src="js/monetization-ui.js"></script>
         <!-- Config push (clé publique VAPID) -->
         <script src="js/push-config.js"></script>
         <script src="js/influence.js"></script>
