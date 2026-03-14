@@ -490,6 +490,17 @@ nav {
 
 .nav-links a:hover { color: var(--text-primary); }
 
+.nav-discover-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.nav-discover-icon {
+    width: 20px;
+    height: 20px;
+}
+
 .nav-verify-btn {
     display: inline-flex;
     align-items: center;
@@ -561,11 +572,26 @@ nav {
         display: flex;
     }
 
+    body.has-mobile-nav nav {
+        justify-content: center;
+    }
+
+    body.has-mobile-nav nav .logo {
+        position: absolute;
+        left: 1.2rem;
+    }
+
     body.has-mobile-nav nav .nav-links a {
         display: none;
     }
 
+    body.has-mobile-nav nav .nav-links a.nav-discover-btn {
+        display: inline-flex;
+    }
+
     body.has-mobile-nav nav .nav-links {
+        justify-content: center;
+        width: 100%;
         gap: 0.6rem;
     }
 
@@ -853,8 +879,12 @@ nav {
         grid-template-columns: 1fr;
         gap: 1.25rem;
     }
+    .hero-copy {
+        order: 1;
+    }
     .hero-media {
-        display: none;
+        display: block;
+        order: 2;
     }
     #hero-watch-btn {
         display: none;

@@ -814,6 +814,18 @@ async function initializeApp() {
 }
 
 // Mettre à jour la navigation selon l'état de connexion
+function setNavProfileAvatar(rawAvatar) {
+    if (!rawAvatar) return;
+    const navProfile = document.getElementById("nav-profile");
+    if (!navProfile) return;
+    const navAvatar = navProfile.querySelector(".profile-nav-avatar");
+    if (!navAvatar) return;
+    const avatarValue = String(rawAvatar);
+    navAvatar.src = avatarValue.startsWith("http")
+        ? withCacheBust(avatarValue)
+        : avatarValue;
+}
+
 function updateNavigation(isLoggedIn) {
     const navAuth = document.getElementById("nav-auth");
     const navProfile = document.getElementById("nav-profile");
@@ -833,7 +845,22 @@ function updateNavigation(isLoggedIn) {
         if (!isLoggedIn) {
             navProfile.style.display = "none";
         } else {
-            navProfile.style.display = "block";
+            navProfile.style.display = navProfile.classList.contains("notification-button")
+                ? "flex"
+                : "block";
+            const directAvatar =
+                window.currentUser?.avatar ||
+                window.currentUser?.user_metadata?.avatar_url ||
+                window.currentUser?.user_metadata?.avatar;
+            if (directAvatar) {
+                setNavProfileAvatar(directAvatar);
+            } else if (window.currentUser?.id && typeof getUserProfile === "function") {
+                getUserProfile(window.currentUser.id).then((res) => {
+                    if (res?.success && res.data?.avatar) {
+                        setNavProfileAvatar(res.data.avatar);
+                    }
+                });
+            }
         }
     }
 
@@ -1657,7 +1684,10 @@ async function loadAllData() {
 
         // S'assurer que l'utilisateur connecté a un profil
         if (window.currentUser) {
-            await ensureUserProfile(window.currentUser);
+            const ensuredProfile = await ensureUserProfile(window.currentUser);
+            if (ensuredProfile?.avatar) {
+                setNavProfileAvatar(ensuredProfile.avatar);
+            }
         }
 
         // Charger tous les utilisateurs
