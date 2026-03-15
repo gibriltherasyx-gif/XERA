@@ -35,9 +35,12 @@
                     fill="none"
                     stroke="currentColor"
                     stroke-width="2"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
                 >
-                    <circle cx="12" cy="12" r="9"></circle>
-                    <path d="M14.8 9.2l-3.6 1.4-1.4 3.6 3.6-1.4 1.4-3.6z"></path>
+                    <path d="M3 10.5L12 3l9 7.5"></path>
+                    <path d="M5 10v10h14V10"></path>
+                    <path d="M9 20v-6h6v6"></path>
                 </svg>
             </a>
             <div
@@ -331,12 +334,13 @@
                     <div class="plans-comparison">
                         <div class="plan-card">
                             <h3>Standard</h3>
-                            <div class="plan-price">$2.50<span>/mois</span></div>
+                            <div class="plan-price">$2.99<span>/mois</span></div>
                             <ul class="plan-features">
                                 <li><i class="fas fa-check"></i> Badge bleu</li>
-                                <li><i class="fas fa-check"></i> Statut vérifié</li>
-                                <li class="disabled"><i class="fas fa-times"></i> Recevoir des soutiens</li>
-                                <li class="disabled"><i class="fas fa-times"></i> Monétisation vidéo</li>
+                                <li><i class="fas fa-check"></i> Historique complet et public</li>
+                                <li><i class="fas fa-check"></i> Priorité Discover</li>
+                                <li><i class="fas fa-check"></i> Avatar/Bannière GIF</li>
+                                <li><i class="fas fa-check"></i> Notifications live auto</li>
                             </ul>
                             <button class="btn-plan" onclick="selectPlan('standard')">
                                 Choisir Standard
@@ -346,13 +350,12 @@
                         <div class="plan-card recommended">
                             <div class="recommended-badge">Recommandé</div>
                             <h3>Medium</h3>
-                            <div class="plan-price">$6.00<span>/mois</span></div>
+                            <div class="plan-price">$7.99<span>/mois</span></div>
                             <ul class="plan-features">
-                                <li><i class="fas fa-check"></i> Badge bleu</li>
-                                <li><i class="fas fa-check"></i> Statut vérifié</li>
-                                <li><i class="fas fa-check"></i> Recevoir des soutiens</li>
-                                <li><i class="fas fa-check"></i> Transferts Payapay</li>
-                                <li class="disabled"><i class="fas fa-times"></i> Monétisation vidéo</li>
+                                <li><i class="fas fa-check"></i> Tous les avantages Standard</li>
+                                <li><i class="fas fa-check"></i> Badge Medium</li>
+                                <li><i class="fas fa-check"></i> Monétisation + dons</li>
+                                <li><i class="fas fa-check"></i> Notifications live auto</li>
                             </ul>
                             <button class="btn-plan btn-primary" onclick="selectPlan('medium')">
                                 Choisir Medium
@@ -361,13 +364,13 @@
 
                         <div class="plan-card">
                             <h3>Pro</h3>
-                            <div class="plan-price">$10.00<span>/mois</span></div>
+                            <div class="plan-price">$14.99<span>/mois</span></div>
                             <ul class="plan-features">
-                                <li><i class="fas fa-check"></i> Badge bleu</li>
-                                <li><i class="fas fa-check"></i> Statut vérifié</li>
-                                <li><i class="fas fa-check"></i> Recevoir des soutiens</li>
-                                <li><i class="fas fa-check"></i> Monétisation vidéo $0.40/1000vues</li>
-                                <li><i class="fas fa-check"></i> Dashboard avancé</li>
+                                <li><i class="fas fa-check"></i> Tous les avantages Medium</li>
+                                <li><i class="fas fa-check"></i> Badge Gold</li>
+                                <li><i class="fas fa-check"></i> Analytics avancés</li>
+                                <li><i class="fas fa-check"></i> Lives en HD</li>
+                                <li><i class="fas fa-check"></i> Lives privés followers</li>
                             </ul>
                             <button class="btn-plan" onclick="selectPlan('pro')">
                                 Choisir Pro

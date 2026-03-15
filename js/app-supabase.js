@@ -123,7 +123,7 @@ function injectVerificationNavButton() {
         const navLinks = document.querySelector("nav .nav-links");
         if (!navLinks || navLinks.querySelector(".nav-verify-btn")) return;
         const btn = document.createElement("a");
-        btn.href = "verification.html";
+        btn.href = "subscription-plans.html";
         btn.className = "nav-verify-btn";
         btn.innerHTML = `
             Obtenir une vérification
@@ -8416,7 +8416,7 @@ async function renderProfileTimeline(userId) {
                 <strong>Envie du badge vérifié ?</strong>
                 <span>Pré-requis créateur : 1000 abonnés (actuel : ${followerCount}).</span>
             </div>
-            <button class="profile-verify-cta" onclick="window.location.href='verification.html'">
+            <button class="profile-verify-cta" onclick="window.location.href='subscription-plans.html'">
                 Obtenir une vérification
                 <img src="icons/verify-personal.svg?v=${BADGE_ASSET_VERSION}" alt="Badge" />
             </button>
@@ -9714,7 +9714,7 @@ async function openSettings(userId) {
         <div class="verification-status info">
             Les demandes se font désormais sur la page Vérification.
         </div>
-        <button type="button" class="btn-verify" onclick="window.location.href='verification.html'">
+        <button type="button" class="btn-verify" onclick="window.location.href='subscription-plans.html'">
             Obtenir une vérification
             <img src="icons/verify-personal.svg?v=${BADGE_ASSET_VERSION}" alt="Badge" style="width:18px;height:18px;margin-left:8px;">
         </button>

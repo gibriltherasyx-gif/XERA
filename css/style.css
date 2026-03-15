@@ -479,6 +479,12 @@ nav {
     align-items: center;
 }
 
+.nav-actions {
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+}
+
 .nav-links a {
     color: var(--text-secondary);
     text-decoration: none;

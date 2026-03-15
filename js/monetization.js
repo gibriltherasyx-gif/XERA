@@ -7,18 +7,31 @@ const PLANS = {
     STANDARD: {
         id: 'PLAN_STANDARD',
         name: 'Standard',
-        price: 2.50,
+        price: 2.99,
         currency: 'USD',
-        features: ['Badge bleu', 'Statut vérifié', 'Support prioritaire'],
+        features: [
+            'Badge de vérification bleu',
+            'Historique complet et public',
+            'Priorité dans le feed Discover',
+            'Avatar/Bannière GIF autorisés',
+            'Notifications automatiques aux followers'
+        ],
         canReceiveTips: false,
         canMonetizeVideos: false
     },
     MEDIUM: {
         id: 'PLAN_MEDIUM',
         name: 'Medium',
-        price: 6.00,
+        price: 7.99,
         currency: 'USD',
-        features: ['Badge bleu', 'Statut vérifié', 'Recevoir des soutiens', 'Transferts Payapay'],
+        features: [
+            'Tous les avantages Standard',
+            'Badge Medium',
+            'Fonctionnalités de monétisation',
+            'Soutiens de la communauté (dons)',
+            'Avatar/Bannière GIF autorisés',
+            'Notifications automatiques aux followers'
+        ],
         canReceiveTips: true,
         canMonetizeVideos: false,
         minFollowers: 1000
@@ -26,9 +39,15 @@ const PLANS = {
     PRO: {
         id: 'PLAN_PRO',
         name: 'Pro',
-        price: 10.00,
+        price: 14.99,
         currency: 'USD',
-        features: ['Badge bleu', 'Statut vérifié', 'Recevoir des soutiens', 'Monétisation vidéo ($0.40/1000 vues)', 'Dashboard avancé'],
+        features: [
+            'Tous les avantages Medium',
+            'Badge Gold',
+            'Analytics avancés',
+            'Lives en HD',
+            'Lives privés réservés aux followers'
+        ],
         canReceiveTips: true,
         canMonetizeVideos: true,
         minFollowers: 1000,
@@ -597,12 +616,19 @@ async function createSupportPaymentSession(fromUserId, toUserId, amount, descrip
 }
 
 // Créer un abonnement Payapay
-async function createPayapaySubscription(userId, planId) {
+async function createPayapaySubscription(userId, planId, options = {}) {
     try {
         const plan = PLANS[planId.toUpperCase()];
         if (!plan) {
             return { success: false, error: 'Plan invalide' };
         }
+
+        const normalizedOptions = typeof options === 'string'
+            ? { billingCycle: options }
+            : options;
+        const billingCycle = normalizedOptions?.billingCycle === 'annual'
+            ? 'annual'
+            : 'monthly';
         
         // Récupérer l'utilisateur
         const { data: user } = await getUserProfile(userId);
@@ -611,9 +637,12 @@ async function createPayapaySubscription(userId, planId) {
         const subscription = await createPayapaySubscriptionRequest({
             customer_id: user.data?.payapay_customer_id,
             plan_id: plan.id,
+            billing_cycle: billingCycle,
+            discount_rate: billingCycle === 'annual' ? 0.20 : 0,
             metadata: {
                 user_id: userId,
-                plan: planId.toLowerCase()
+                plan: planId.toLowerCase(),
+                billing_cycle: billingCycle
             }
         });
         

@@ -4,9 +4,15 @@
 
 let selectedPlan = null;
 let currentUser = null;
+let billingCycle = 'monthly';
+const ANNUAL_DISCOUNT = 0.20;
 
-document.addEventListener('DOMContentLoaded', async () => {
-    await initPlansPage();
+document.addEventListener('DOMContentLoaded', () => {
+    setupBillingToggle();
+    applyBillingCycle(billingCycle);
+    initPlansPage().catch(error => {
+        console.error('Erreur initialisation page plans:', error);
+    });
 });
 
 async function initPlansPage() {
@@ -25,10 +31,47 @@ async function initPlansPage() {
             updateNavAvatar(profile.avatar);
             highlightCurrentPlan(profile.plan);
         }
-        
+
     } catch (error) {
         console.error('Erreur initialisation page plans:', error);
     }
+}
+
+function setupBillingToggle() {
+    const toggle = document.querySelector('.billing-toggle');
+    if (!toggle) return;
+    toggle.addEventListener('click', (event) => {
+        const btn = event.target.closest('.billing-btn');
+        if (!btn) return;
+        const cycle = btn.getAttribute('data-cycle');
+        if (cycle) applyBillingCycle(cycle);
+    });
+}
+
+function applyBillingCycle(cycle) {
+    billingCycle = cycle === 'annual' ? 'annual' : 'monthly';
+    document.querySelectorAll('.billing-btn').forEach(btn => {
+        const isActive = btn.getAttribute('data-cycle') === billingCycle;
+        btn.classList.toggle('active', isActive);
+        btn.setAttribute('aria-pressed', isActive ? 'true' : 'false');
+    });
+
+    document.querySelectorAll('.plan-detail-card .price').forEach(priceEl => {
+        const monthly = parseFloat(priceEl.getAttribute('data-monthly'));
+        if (Number.isNaN(monthly)) return;
+        const annualBase = monthly * 12;
+        const price = billingCycle === 'annual'
+            ? annualBase * (1 - ANNUAL_DISCOUNT)
+            : monthly;
+        const suffix = billingCycle === 'annual' ? '/an' : '/mois';
+        const format = typeof formatCurrency === 'function'
+            ? formatCurrency
+            : (value) => `$${value.toFixed(2)}`;
+        const savingsNote = billingCycle === 'annual'
+            ? `<small class="annual-savings">au lieu de ${format(annualBase)}/an</small>`
+            : '';
+        priceEl.innerHTML = `${format(price)}<span>${suffix}</span>${savingsNote}`;
+    });
 }
 
 // Mettre à jour l'avatar dans la navigation
@@ -53,7 +96,7 @@ function highlightCurrentPlan(currentPlan) {
             const btn = card.querySelector('.btn-subscribe');
             btn.innerHTML = '<i class="fas fa-check"></i> Plan actuel';
             btn.disabled = true;
-            btn.style.background = '#27ae60';
+            btn.classList.add('btn-current');
             
             // Ajouter un badge
             const badge = document.createElement('div');
@@ -85,10 +128,17 @@ async function selectSubscription(planId) {
     const plan = PLANS[planId.toUpperCase()];
     
     if (planDetails && plan) {
+        const price = billingCycle === 'annual'
+            ? plan.price * 12 * (1 - ANNUAL_DISCOUNT)
+            : plan.price;
+        const suffix = billingCycle === 'annual' ? '/an' : '/mois';
+        const cycleNote = billingCycle === 'annual'
+            ? '<small>Facturé annuellement · 20% de réduction</small>'
+            : '';
         planDetails.innerHTML = `
             <div class="plan-summary">
                 <h3>${plan.name}</h3>
-                <div class="plan-price-large">${formatCurrency(plan.price)}<span>/mois</span></div>
+                <div class="plan-price-large">${formatCurrency(price)}<span>${suffix}</span>${cycleNote}</div>
                 <ul class="plan-mini-features">
                     ${plan.features.slice(0, 3).map(f => `<li><i class="fas fa-check"></i> ${f}</li>`).join('')}
                 </ul>
@@ -108,7 +158,9 @@ async function processSubscription() {
     if (!selectedPlan || !currentUser) return;
     
     try {
-        const result = await createPayapaySubscription(currentUser.id, selectedPlan);
+        const result = await createPayapaySubscription(currentUser.id, selectedPlan, {
+            billingCycle
+        });
         
         if (result.success && result.data.paymentUrl) {
             // Rediriger vers Payapay pour le paiement
