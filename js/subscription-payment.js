@@ -4,6 +4,7 @@
 
 const DEFAULT_BILLING = 'monthly';
 const ANNUAL_DISCOUNT = 0.20;
+let usdToCdfRate = 2300;
 
 document.addEventListener('DOMContentLoaded', async () => {
     const user = await checkAuth();
@@ -18,7 +19,10 @@ document.addEventListener('DOMContentLoaded', async () => {
     const plan = normalizePlan(params.get('plan'));
     const billing = normalizeBilling(params.get('billing'));
 
-    hydrateSummary(plan, billing);
+    const currencyInput = document.getElementById('inputCurrency');
+    const currency = currencyInput?.value || 'USD';
+    await loadExchangeRate();
+    hydrateSummary(plan, billing, currency);
     setupPaymentForm(user, plan, billing);
 });
 
@@ -47,14 +51,18 @@ function normalizeBilling(billing) {
     return String(billing).toLowerCase() === 'annual' ? 'annual' : DEFAULT_BILLING;
 }
 
-function hydrateSummary(planId, billingCycle) {
+function hydrateSummary(planId, billingCycle, currency = 'USD') {
     const plan = PLANS[planId.toUpperCase()];
     if (!plan) return;
 
-    const monthly = plan.price;
-    const amount = billingCycle === 'annual'
-        ? monthly * 12 * (1 - ANNUAL_DISCOUNT)
-        : monthly;
+    const monthlyUsd = plan.price;
+    const amountUsd = billingCycle === 'annual'
+        ? monthlyUsd * 12 * (1 - ANNUAL_DISCOUNT)
+        : monthlyUsd;
+    const normalizedCurrency = String(currency || 'USD').toUpperCase();
+    const amount = normalizedCurrency === 'CDF'
+        ? Math.round(amountUsd * usdToCdfRate)
+        : amountUsd;
     const cycleLabel = billingCycle === 'annual' ? 'Annuel' : 'Mensuel';
     const periodLabel = billingCycle === 'annual' ? '/an' : '/mois';
     const note = billingCycle === 'annual'
@@ -70,7 +78,7 @@ function hydrateSummary(planId, billingCycle) {
 
     if (summaryPlan) summaryPlan.textContent = plan.name;
     if (summaryCycle) summaryCycle.textContent = cycleLabel;
-    if (summaryAmount) summaryAmount.textContent = formatCurrency(amount);
+    if (summaryAmount) summaryAmount.textContent = formatCurrency(amount, normalizedCurrency);
     if (summaryPeriod) summaryPeriod.textContent = periodLabel;
     if (summaryNote) summaryNote.textContent = note;
 
@@ -140,6 +148,7 @@ function setupPaymentForm(user, planId, billingCycle) {
             currencyButtons.forEach((b) => b.classList.remove('is-active'));
             btn.classList.add('is-active');
             inputCurrency.value = btn.getAttribute('data-currency') || 'USD';
+            hydrateSummary(planId, billingCycle, inputCurrency.value);
         });
     });
 
@@ -173,4 +182,19 @@ function resolveApiBase() {
         return `${protocol}//${hostname}:5050`;
     }
     return window.location.origin;
+}
+
+async function loadExchangeRate() {
+    try {
+        const apiBase = resolveApiBase();
+        const response = await fetch(`${apiBase}/api/config`);
+        if (!response.ok) return;
+        const data = await response.json();
+        const rate = Number.parseFloat(data?.usdToCdfRate);
+        if (Number.isFinite(rate) && rate > 0) {
+            usdToCdfRate = rate;
+        }
+    } catch (error) {
+        // keep default rate
+    }
 }
