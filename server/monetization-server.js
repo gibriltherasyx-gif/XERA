@@ -19,6 +19,7 @@ const {
     RETURN_REMINDER_WINDOW_MINUTES = "15",
     RETURN_REMINDER_SWEEP_MS = "60000",
     USD_TO_CDF_RATE = "2300",
+    CALLBACK_BASE_URL = "",
     MAISHAPAY_PUBLIC_KEY = "MP-LIVEPK-1afkdoHof8UcPzo.o$LKyRlHit$fGWjaFwcvfy5GH1uTf1V5cMa2Hej$e0H9AHKWZ0b0hmnxUc7EiY2$ynF1ydIpON$e4GfabzJ2RJAU58zn.vAY42hg$x3q",
     MAISHAPAY_SECRET_KEY = "MP-LIVEPK-1Ny4TiF0Zj9QS3c10fzguaw62vQdG1U$xt93dSmBMxckDlcG$R6nuje$PlKF2Ib.hB..F$S.yuR2K2hyMwWIT0s8IF6Lor6S$P6e42s1yKuoJnNFbg$fwf1q",
     MAISHAPAY_GATEWAY_MODE = "1",
@@ -56,6 +57,8 @@ app.use(cors({ origin: allowedOrigins, methods: ["GET", "POST"] }));
 
 const PRIMARY_ORIGIN =
     allowedOrigins[0] || APP_BASE_URL.split(",")[0] || "http://localhost:3000";
+const CALLBACK_ORIGIN =
+    String(CALLBACK_BASE_URL || "").trim() || PRIMARY_ORIGIN;
 const REMINDER_HOURS = RETURN_REMINDER_HOURS.split(",")
     .map((value) => parseInt(value.trim(), 10))
     .filter((hour) => Number.isFinite(hour) && hour >= 0 && hour <= 23)
@@ -445,7 +448,7 @@ app.post("/api/maishapay/checkout", async (req, res) => {
             return res.status(500).send("Callback secret manquant");
         }
 
-        const callbackUrl = `${PRIMARY_ORIGIN}/api/maishapay/callback?state=${encodeURIComponent(state)}`;
+        const callbackUrl = `${CALLBACK_ORIGIN}/api/maishapay/callback?state=${encodeURIComponent(state)}`;
 
         res.set("Content-Type", "text/html");
         res.send(`
