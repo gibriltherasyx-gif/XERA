@@ -55,11 +55,9 @@ const PLANS = {
     }
 };
 
-// Configuration Payapay
-const PAYAPAY_CONFIG = {
-    apiUrl: 'https://api.payapay.com/v1',
+// Règles de paiement (MaishaPay uniquement)
+const PAYMENT_RULES = {
     commissionRate: 0.20,
-    minPayoutAmount: 5.00,
     minTipAmount: 1.00,
     maxTipAmount: 1000.00
 };
@@ -221,10 +219,10 @@ async function createSupportTransaction(fromUserId, toUserId, amount, descriptio
         }
         
         // Vérifier les limites de montant
-        if (amount < PAYAPAY_CONFIG.minTipAmount || amount > PAYAPAY_CONFIG.maxTipAmount) {
-            return {
-                success: false,
-                error: `Le montant doit être entre ${PAYAPAY_CONFIG.minTipAmount} et ${PAYAPAY_CONFIG.maxTipAmount} USD`
+        if (amount < PAYMENT_RULES.minTipAmount || amount > PAYMENT_RULES.maxTipAmount) {
+            return { 
+                success: false, 
+                error: `Le montant doit être entre ${PAYMENT_RULES.minTipAmount} et ${PAYMENT_RULES.maxTipAmount} USD`
             };
         }
         
@@ -538,326 +536,15 @@ async function getCreatorVideoPayouts(creatorId, options = {}) {
 }
 
 /* ========================================
-   FONCTIONS PAYAPAY - INTÉGRATION
+   PAIEMENTS (MAISHAPAY UNIQUEMENT)
    ======================================== */
 
 // Créer une session de paiement pour un soutien
-async function createSupportPaymentSession(fromUserId, toUserId, amount, description = '') {
-    try {
-        // Vérifier que le créateur peut recevoir des soutiens
-        const { data: creator } = await getUserProfile(toUserId);
-        if (!canReceiveSupport(creator.data)) {
-            return { 
-                success: false, 
-                error: 'Ce créateur ne peut pas recevoir de soutiens.' 
-            };
-        }
-        
-        // Créer la transaction en pending
-        const { data: transaction, error: txError } = await createSupportTransaction(
-            fromUserId, 
-            toUserId, 
-            amount, 
-            description
-        );
-        
-        if (txError || !transaction.success) {
-            return { 
-                success: false, 
-                error: transaction?.error || txError || 'Erreur création transaction' 
-            };
-        }
-        
-        // Appeler l'API Payapay (à implémenter selon leur documentation)
-        const payapaySession = await createPayapayPaymentSession({
-            amount: amount,
-            currency: 'USD',
-            description: `Soutien à ${creator.data?.name || 'créateur'}`,
-            metadata: {
-                transaction_id: transaction.data.id,
-                from_user_id: fromUserId,
-                to_user_id: toUserId,
-                type: 'support'
-            },
-            application_fee_amount: amount * PAYAPAY_CONFIG.commissionRate
-        });
-        
-        if (!payapaySession.success) {
-            // Mettre à jour la transaction comme échouée
-            await supabase
-                .from('transactions')
-                .update({ status: 'failed' })
-                .eq('id', transaction.data.id);
-            
-            return { success: false, error: payapaySession.error };
-        }
-        
-        // Mettre à jour la transaction avec l'ID Payapay
-        await supabase
-            .from('transactions')
-            .update({ 
-                payapay_payment_id: payapaySession.paymentId,
-                metadata: { session_url: payapaySession.url }
-            })
-            .eq('id', transaction.data.id);
-        
-        return { 
-            success: true, 
-            data: {
-                transactionId: transaction.data.id,
-                paymentUrl: payapaySession.url,
-                sessionId: payapaySession.sessionId
-            }
-        };
-    } catch (error) {
-        console.error('Exception création session paiement:', error);
-        return { success: false, error: error.message };
-    }
-}
-
-// Créer un abonnement Payapay
-async function createPayapaySubscription(userId, planId, options = {}) {
-    try {
-        const plan = PLANS[planId.toUpperCase()];
-        if (!plan) {
-            return { success: false, error: 'Plan invalide' };
-        }
-
-        const normalizedOptions = typeof options === 'string'
-            ? { billingCycle: options }
-            : options;
-        const billingCycle = normalizedOptions?.billingCycle === 'annual'
-            ? 'annual'
-            : 'monthly';
-        
-        // Récupérer l'utilisateur
-        const { data: user } = await getUserProfile(userId);
-        
-        // Appeler l'API Payapay pour créer l'abonnement
-        const subscription = await createPayapaySubscriptionRequest({
-            customer_id: user.data?.payapay_customer_id,
-            plan_id: plan.id,
-            billing_cycle: billingCycle,
-            discount_rate: billingCycle === 'annual' ? 0.20 : 0,
-            metadata: {
-                user_id: userId,
-                plan: planId.toLowerCase(),
-                billing_cycle: billingCycle
-            }
-        });
-        
-        if (!subscription.success) {
-            return { success: false, error: subscription.error };
-        }
-        
-        // Enregistrer l'abonnement dans Supabase
-        const { data: subData, error: subError } = await supabase
-            .from('subscriptions')
-            .insert({
-                user_id: userId,
-                plan: planId.toLowerCase(),
-                status: 'active',
-                payapay_subscription_id: subscription.subscriptionId,
-                payapay_customer_id: subscription.customerId,
-                current_period_end: subscription.currentPeriodEnd
-            })
-            .select()
-            .single();
-        
-        if (subError) {
-            console.error('Erreur enregistrement abonnement:', subError);
-            return { success: false, error: subError.message };
-        }
-        
-        // Mettre à jour le profil utilisateur
-        await updateUserPlan(userId, planId.toLowerCase(), 'active');
-        
-        return { 
-            success: true, 
-            data: {
-                subscription: subData,
-                paymentUrl: subscription.paymentUrl
-            }
-        };
-    } catch (error) {
-        console.error('Exception création abonnement:', error);
-        return { success: false, error: error.message };
-    }
-}
-
-// Simuler les appels API Payapay (à remplacer par les vrais appels)
-async function createPayapayPaymentSession(params) {
-    // TODO: Implémenter selon la documentation Payapay
-    console.log('Creating Payapay payment session:', params);
-    
-    // Simulation
+async function createSupportPaymentSession() {
     return {
-        success: true,
-        sessionId: 'sess_' + Math.random().toString(36).substr(2, 9),
-        paymentId: 'pay_' + Math.random().toString(36).substr(2, 9),
-        url: 'https://pay.payapay.com/session/' + Math.random().toString(36).substr(2, 9)
+        success: false,
+        error: 'Les soutiens ne sont pas encore disponibles avec MaishaPay.'
     };
-}
-
-async function createPayapaySubscriptionRequest(params) {
-    // TODO: Implémenter selon la documentation Payapay
-    console.log('Creating Payapay subscription:', params);
-    
-    // Simulation
-    return {
-        success: true,
-        subscriptionId: 'sub_' + Math.random().toString(36).substr(2, 9),
-        customerId: params.customer_id || 'cus_' + Math.random().toString(36).substr(2, 9),
-        currentPeriodEnd: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(),
-        paymentUrl: 'https://pay.payapay.com/subscribe/' + Math.random().toString(36).substr(2, 9)
-    };
-}
-
-/* ========================================
-   FONCTIONS WEBHOOK - GESTION DES ÉVÉNEMENTS PAYAPAY
-   ======================================== */
-
-// Gérer un webhook Payapay
-async function handlePayapayWebhook(event) {
-    try {
-        switch (event.type) {
-            case 'payment.succeeded':
-                await handlePaymentSucceeded(event.data);
-                break;
-            case 'payment.failed':
-                await handlePaymentFailed(event.data);
-                break;
-            case 'subscription.created':
-                await handleSubscriptionCreated(event.data);
-                break;
-            case 'subscription.updated':
-                await handleSubscriptionUpdated(event.data);
-                break;
-            case 'subscription.canceled':
-                await handleSubscriptionCanceled(event.data);
-                break;
-            case 'subscription.past_due':
-                await handleSubscriptionPastDue(event.data);
-                break;
-            default:
-                console.log('Unhandled webhook event:', event.type);
-        }
-        
-        return { success: true };
-    } catch (error) {
-        console.error('Exception webhook:', error);
-        return { success: false, error: error.message };
-    }
-}
-
-// Paiement réussi
-async function handlePaymentSucceeded(data) {
-    const { payment_id, transaction_id } = data;
-    
-    // Mettre à jour la transaction
-    const { error } = await supabase
-        .from('transactions')
-        .update({ 
-            status: 'succeeded',
-            updated_at: new Date().toISOString()
-        })
-        .eq('payapay_payment_id', payment_id);
-    
-    if (error) {
-        console.error('Erreur mise à jour transaction:', error);
-    }
-    
-    // TODO: Envoyer une notification au créateur
-    // TODO: Créditer le compte du créateur
-}
-
-// Paiement échoué
-async function handlePaymentFailed(data) {
-    const { payment_id } = data;
-    
-    const { error } = await supabase
-        .from('transactions')
-        .update({ 
-            status: 'failed',
-            updated_at: new Date().toISOString()
-        })
-        .eq('payapay_payment_id', payment_id);
-    
-    if (error) {
-        console.error('Erreur mise à jour transaction:', error);
-    }
-}
-
-// Abonnement créé
-async function handleSubscriptionCreated(data) {
-    console.log('Subscription created:', data);
-}
-
-// Abonnement mis à jour
-async function handleSubscriptionUpdated(data) {
-    const { subscription_id, status, current_period_end } = data;
-    
-    const { error } = await supabase
-        .from('subscriptions')
-        .update({
-            status: status,
-            current_period_end: current_period_end,
-            updated_at: new Date().toISOString()
-        })
-        .eq('payapay_subscription_id', subscription_id);
-    
-    if (error) {
-        console.error('Erreur mise à jour abonnement:', error);
-    }
-}
-
-// Abonnement annulé
-async function handleSubscriptionCanceled(data) {
-    const { subscription_id } = data;
-    
-    const { data: subscription, error: fetchError } = await supabase
-        .from('subscriptions')
-        .select('user_id')
-        .eq('payapay_subscription_id', subscription_id)
-        .single();
-    
-    if (fetchError) {
-        console.error('Erreur récupération abonnement:', fetchError);
-        return;
-    }
-    
-    // Mettre à jour l'abonnement
-    await supabase
-        .from('subscriptions')
-        .update({
-            status: 'canceled',
-            canceled_at: new Date().toISOString(),
-            updated_at: new Date().toISOString()
-        })
-        .eq('payapay_subscription_id', subscription_id);
-    
-    // Mettre à jour le profil utilisateur
-    await supabase
-        .from('users')
-        .update({
-            plan: 'free',
-            plan_status: 'canceled',
-            is_monetized: false
-        })
-        .eq('id', subscription.user_id);
-}
-
-// Abonnement en retard de paiement
-async function handleSubscriptionPastDue(data) {
-    const { subscription_id } = data;
-    
-    await supabase
-        .from('subscriptions')
-        .update({
-            status: 'past_due',
-            updated_at: new Date().toISOString()
-        })
-        .eq('payapay_subscription_id', subscription_id);
 }
 
 /* ========================================
@@ -919,7 +606,7 @@ function renderSupportAmounts() {
 if (typeof module !== 'undefined' && module.exports) {
     module.exports = {
         PLANS,
-        PAYAPAY_CONFIG,
+        PAYMENT_RULES,
         canReceiveSupport,
         canMonetizeVideos,
         getUserPlan,
@@ -936,8 +623,6 @@ if (typeof module !== 'undefined' && module.exports) {
         getCreatorVideoStats,
         getCreatorVideoPayouts,
         createSupportPaymentSession,
-        createPayapaySubscription,
-        handlePayapayWebhook,
         renderPlanBadge,
         renderSupportButton,
         renderSupportAmounts

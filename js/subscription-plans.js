@@ -25,11 +25,20 @@ async function initPlansPage() {
         }
         
         // Charger le profil utilisateur
-        const { data: profile } = await getUserProfile(user.id);
-        if (profile) {
-            currentUser = profile;
-            updateNavAvatar(profile.avatar);
-            highlightCurrentPlan(profile.plan);
+        const profileResult = await getUserProfile(user.id);
+        if (profileResult?.success && profileResult.data) {
+            currentUser = profileResult.data;
+            updateNavAvatar(profileResult.data.avatar);
+            highlightCurrentPlan(profileResult.data.plan);
+        } else {
+            // Fallback: autoriser l'achat même si le profil n'est pas encore créé
+            currentUser = {
+                id: user.id,
+                plan: 'free',
+                plan_status: 'inactive'
+            };
+            const fallbackAvatar = user?.user_metadata?.avatar_url || user?.user_metadata?.avatar;
+            updateNavAvatar(fallbackAvatar);
         }
 
     } catch (error) {
@@ -121,36 +130,10 @@ async function selectSubscription(planId) {
         return;
     }
     
-    selectedPlan = planId;
-    
-    // Afficher les détails dans le modal
-    const planDetails = document.getElementById('confirmPlanDetails');
-    const plan = PLANS[planId.toUpperCase()];
-    
-    if (planDetails && plan) {
-        const price = billingCycle === 'annual'
-            ? plan.price * 12 * (1 - ANNUAL_DISCOUNT)
-            : plan.price;
-        const suffix = billingCycle === 'annual' ? '/an' : '/mois';
-        const cycleNote = billingCycle === 'annual'
-            ? '<small>Facturé annuellement · 20% de réduction</small>'
-            : '';
-        planDetails.innerHTML = `
-            <div class="plan-summary">
-                <h3>${plan.name}</h3>
-                <div class="plan-price-large">${formatCurrency(price)}<span>${suffix}</span>${cycleNote}</div>
-                <ul class="plan-mini-features">
-                    ${plan.features.slice(0, 3).map(f => `<li><i class="fas fa-check"></i> ${f}</li>`).join('')}
-                </ul>
-            </div>
-        `;
-    }
-    
-    // Ouvrir le modal
-    const modal = document.getElementById('confirmModal');
-    if (modal) {
-        modal.classList.add('active');
-    }
+    const url = new URL('subscription-payment.html', window.location.href);
+    url.searchParams.set('plan', planId);
+    url.searchParams.set('billing', billingCycle);
+    window.location.href = url.toString();
 }
 
 // Traiter l'abonnement
@@ -158,16 +141,10 @@ async function processSubscription() {
     if (!selectedPlan || !currentUser) return;
     
     try {
-        const result = await createPayapaySubscription(currentUser.id, selectedPlan, {
-            billingCycle
-        });
-        
-        if (result.success && result.data.paymentUrl) {
-            // Rediriger vers Payapay pour le paiement
-            window.location.href = result.data.paymentUrl;
-        } else {
-            showNotification(result.error || 'Erreur lors de la création de l\'abonnement', 'error');
-        }
+        const url = new URL('subscription-payment.html', window.location.href);
+        url.searchParams.set('plan', selectedPlan);
+        url.searchParams.set('billing', billingCycle);
+        window.location.href = url.toString();
     } catch (error) {
         console.error('Exception traitement abonnement:', error);
         showNotification('Une erreur est survenue lors du traitement', 'error');

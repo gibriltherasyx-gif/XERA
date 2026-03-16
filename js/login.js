@@ -3,6 +3,26 @@
    ======================================== */
 
 let isSignUpMode = false;
+const redirectTarget = new URLSearchParams(window.location.search).get('redirect');
+
+function resolveRedirectTarget() {
+    if (!redirectTarget) return 'index.html';
+    if (redirectTarget.startsWith('http://') || redirectTarget.startsWith('https://')) {
+        try {
+            const targetUrl = new URL(redirectTarget);
+            if (targetUrl.origin === window.location.origin) {
+                return targetUrl.toString();
+            }
+        } catch (_) {
+            return 'index.html';
+        }
+        return 'index.html';
+    }
+    if (redirectTarget.startsWith('/')) {
+        return redirectTarget;
+    }
+    return redirectTarget;
+}
 
 // Éléments DOM
 const authForm = document.getElementById('auth-form');
@@ -71,7 +91,7 @@ async function checkExistingSession() {
         const user = await checkAuth();
         if (user) {
             // Rediriger vers la page principale
-            window.location.href = 'index.html';
+            window.location.href = resolveRedirectTarget();
         }
     } catch (error) {
         console.error('Erreur verification session:', error);
@@ -262,7 +282,7 @@ async function handleSubmit(e) {
                 
                 // Rediriger vers la page principale après 1 seconde
                 setTimeout(() => {
-                    window.location.href = 'index.html';
+                    window.location.href = resolveRedirectTarget();
                 }, 1000);
             } else {
                 showError(result.error || 'Email ou mot de passe incorrect.');

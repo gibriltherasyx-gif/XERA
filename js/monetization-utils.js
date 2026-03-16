@@ -276,8 +276,8 @@ function generateMonetizationProgress(user) {
             progress: Math.min((user.followers_count || 0) / 1000 * 100, 100)
         },
         {
-            name: 'Compte Payapay',
-            met: !!user.payapay_account_id,
+            name: 'Compte MaishaPay',
+            met: user.is_monetized === true || user.plan_status === 'active',
             icon: 'fa-credit-card',
             description: 'Compte de paiement vérifié'
         }

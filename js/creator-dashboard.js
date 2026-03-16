@@ -171,7 +171,7 @@ function updateRequirements(profile) {
     }
     
     if (reqKyc) {
-        const hasKyc = !!profile.payapay_account_id;
+        const hasKyc = profile.is_monetized === true || profile.plan_status === 'active';
         reqKyc.querySelector('i').className = hasKyc ? 'fas fa-check-circle' : 'fas fa-circle';
         reqKyc.classList.toggle('completed', hasKyc);
         reqKyc.querySelector('.req-status').textContent = hasKyc ? 'Vérifié' : 'Non vérifié';
@@ -452,14 +452,10 @@ function closeUpgradeModal() {
 // Sélection d'un plan
 async function selectPlan(planId) {
     try {
-        const result = await createPayapaySubscription(window.currentUser.id, planId);
-        
-        if (result.success && result.data.paymentUrl) {
-            // Rediriger vers Payapay pour le paiement
-            window.location.href = result.data.paymentUrl;
-        } else {
-            showError(result.error || 'Erreur lors de la création de l\'abonnement');
-        }
+        const url = new URL('subscription-payment.html', window.location.href);
+        url.searchParams.set('plan', planId);
+        url.searchParams.set('billing', 'monthly');
+        window.location.href = url.toString();
     } catch (error) {
         console.error('Exception sélection plan:', error);
         showError('Une erreur est survenue');

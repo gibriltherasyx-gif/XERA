@@ -28,10 +28,9 @@
    - plan_status: inactive, active, past_due, canceled
    - is_monetized: boolean
    - followers_count: integer
-   - payapay_account_id: text
 
 2. **subscriptions**
-   - Gestion des abonnements avec IDs Payapay
+   - Gestion des abonnements via MaishaPay
 
 3. **transactions**
    - Soutiens et revenus (commission 20% calculée auto)
@@ -55,7 +54,7 @@
 ### Palier Medium ($6.00/mois)
 - Tout le Standard +
 - Recevoir des soutiens (80% net)
-- Transferts Payapay
+- Transferts MaishaPay
 - Nécessite 1000 abonnés
 
 ### Palier Pro ($10.00/mois)
@@ -64,19 +63,10 @@
 - Dashboard avancé
 - Nécessite 1000 abonnés
 
-## Webhooks Payapay Gérés
-
-- `payment.succeeded` - Transaction réussie
-- `payment.failed` - Échec
-- `payment.refunded` - Remboursement
-- `subscription.created/updated/canceled/past_due` - Gestion abonnements
-- `payout.paid` - Paiement revenus vidéo
-
 ## API Endpoints
 
-- `POST /webhooks/payapay` - Réception webhooks
-- `POST /api/create-support-session` - Créer session paiement
-- `POST /api/create-subscription` - Créer abonnement
+- `POST /api/maishapay/checkout` - Démarrer un paiement d’abonnement
+- `GET|POST /api/maishapay/callback` - Callback MaishaPay
 - `GET /api/creator-revenue/:userId` - Revenus créateur
 
 ## Intégration Frontend
@@ -103,8 +93,9 @@
 
 Variables d'environnement à ajouter:
 ```
-PAYAPAY_API_KEY=your_api_key
-PAYAPAY_WEBHOOK_SECRET=your_webhook_secret
+MAISHAPAY_PUBLIC_KEY=your_public_key
+MAISHAPAY_SECRET_KEY=your_secret_key
+MAISHAPAY_CALLBACK_SECRET=your_callback_secret
 ```
 
 ## Notes d'implémentation

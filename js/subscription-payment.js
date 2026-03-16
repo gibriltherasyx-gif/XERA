@@ -1,0 +1,176 @@
+/* ========================================
+   SUBSCRIPTION PAYMENT - MAISHAPAY
+   ======================================== */
+
+const DEFAULT_BILLING = 'monthly';
+const ANNUAL_DISCOUNT = 0.20;
+
+document.addEventListener('DOMContentLoaded', async () => {
+    const user = await checkAuth();
+    if (!user) {
+        window.location.href = 'login.html?redirect=subscription-payment.html';
+        return;
+    }
+
+    hydrateNavAvatar(user);
+
+    const params = new URLSearchParams(window.location.search);
+    const plan = normalizePlan(params.get('plan'));
+    const billing = normalizeBilling(params.get('billing'));
+
+    hydrateSummary(plan, billing);
+    setupPaymentForm(user, plan, billing);
+});
+
+async function hydrateNavAvatar(user) {
+    const navAvatar = document.getElementById('navAvatar');
+    if (!navAvatar || !user) return;
+    try {
+        const profileResult = await getUserProfile(user.id);
+        const avatar = profileResult?.success
+            ? profileResult.data?.avatar
+            : (user.user_metadata?.avatar_url || user.user_metadata?.avatar);
+        if (avatar) {
+            navAvatar.src = avatar;
+        }
+    } catch (error) {
+        console.error('Erreur chargement avatar:', error);
+    }
+}
+
+function normalizePlan(plan) {
+    const allowed = ['standard', 'medium', 'pro'];
+    return allowed.includes(String(plan).toLowerCase()) ? plan.toLowerCase() : 'standard';
+}
+
+function normalizeBilling(billing) {
+    return String(billing).toLowerCase() === 'annual' ? 'annual' : DEFAULT_BILLING;
+}
+
+function hydrateSummary(planId, billingCycle) {
+    const plan = PLANS[planId.toUpperCase()];
+    if (!plan) return;
+
+    const monthly = plan.price;
+    const amount = billingCycle === 'annual'
+        ? monthly * 12 * (1 - ANNUAL_DISCOUNT)
+        : monthly;
+    const cycleLabel = billingCycle === 'annual' ? 'Annuel' : 'Mensuel';
+    const periodLabel = billingCycle === 'annual' ? '/an' : '/mois';
+    const note = billingCycle === 'annual'
+        ? 'Facturation annuelle avec 20% de réduction.'
+        : 'Facturation mensuelle, résiliable à tout moment.';
+
+    const summaryPlan = document.getElementById('summaryPlan');
+    const summaryCycle = document.getElementById('summaryCycle');
+    const summaryAmount = document.getElementById('summaryAmount');
+    const summaryPeriod = document.getElementById('summaryPeriod');
+    const summaryNote = document.getElementById('summaryNote');
+    const summaryFeatures = document.getElementById('summaryFeatures');
+
+    if (summaryPlan) summaryPlan.textContent = plan.name;
+    if (summaryCycle) summaryCycle.textContent = cycleLabel;
+    if (summaryAmount) summaryAmount.textContent = formatCurrency(amount);
+    if (summaryPeriod) summaryPeriod.textContent = periodLabel;
+    if (summaryNote) summaryNote.textContent = note;
+
+    if (summaryFeatures) {
+        summaryFeatures.innerHTML = plan.features
+            .slice(0, 5)
+            .map((feature) => `
+                <div class="summary-feature">
+                    <i class="fas fa-circle-check"></i>
+                    <span>${feature}</span>
+                </div>
+            `)
+            .join('');
+    }
+}
+
+function setupPaymentForm(user, planId, billingCycle) {
+    const form = document.getElementById('maishapay-form');
+    if (!form) return;
+
+    const inputPlan = document.getElementById('inputPlan');
+    const inputCycle = document.getElementById('inputCycle');
+    const inputCurrency = document.getElementById('inputCurrency');
+    const inputMethod = document.getElementById('inputMethod');
+    const inputProvider = document.getElementById('inputProvider');
+    const inputWallet = document.getElementById('inputWallet');
+    const inputUserId = document.getElementById('inputUserId');
+    const inputAccessToken = document.getElementById('inputAccessToken');
+    const mobileFields = document.getElementById('mobileMoneyFields');
+    const providerSelect = document.getElementById('providerSelect');
+    const walletInput = document.getElementById('walletInput');
+    const errorBox = document.getElementById('paymentError');
+
+    inputPlan.value = planId;
+    inputCycle.value = billingCycle;
+    inputUserId.value = user.id;
+
+    supabase.auth.getSession().then(({ data }) => {
+        if (data?.session?.access_token) {
+            inputAccessToken.value = data.session.access_token;
+        }
+    }).catch(() => {});
+
+    const apiBase = resolveApiBase();
+    form.action = `${apiBase}/api/maishapay/checkout`;
+
+    const methodButtons = document.querySelectorAll('.method-card');
+    methodButtons.forEach((btn) => {
+        btn.addEventListener('click', () => {
+            methodButtons.forEach((b) => b.classList.remove('is-active'));
+            btn.classList.add('is-active');
+            const method = btn.getAttribute('data-method') || 'card';
+            inputMethod.value = method;
+            if (method === 'mobilemoney') {
+                mobileFields.classList.add('is-visible');
+            } else {
+                mobileFields.classList.remove('is-visible');
+                providerSelect.value = '';
+                walletInput.value = '';
+            }
+        });
+    });
+
+    const currencyButtons = document.querySelectorAll('.currency-btn');
+    currencyButtons.forEach((btn) => {
+        btn.addEventListener('click', () => {
+            currencyButtons.forEach((b) => b.classList.remove('is-active'));
+            btn.classList.add('is-active');
+            inputCurrency.value = btn.getAttribute('data-currency') || 'USD';
+        });
+    });
+
+    form.addEventListener('submit', (event) => {
+        if (errorBox) errorBox.textContent = '';
+        if (inputMethod.value === 'mobilemoney') {
+            const provider = providerSelect.value.trim();
+            const wallet = walletInput.value.trim();
+            if (!provider || !wallet) {
+                event.preventDefault();
+                if (errorBox) {
+                    errorBox.textContent = 'Sélectionne un opérateur et un numéro Mobile Money.';
+                }
+                return;
+            }
+            inputProvider.value = provider;
+            inputWallet.value = wallet;
+        } else {
+            inputProvider.value = '';
+            inputWallet.value = '';
+        }
+    });
+}
+
+function resolveApiBase() {
+    const bodyBase = document.body?.dataset?.apiBase?.trim();
+    if (bodyBase) return bodyBase;
+
+    const { protocol, hostname } = window.location;
+    if (hostname === 'localhost' || hostname === '127.0.0.1') {
+        return `${protocol}//${hostname}:5050`;
+    }
+    return window.location.origin;
+}
