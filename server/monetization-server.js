@@ -72,11 +72,15 @@ const REMINDER_SWEEP_MS = Math.max(
     parseInt(RETURN_REMINDER_SWEEP_MS, 10) || 60000,
 );
 let reminderSweepInFlight = false;
-const SUBSCRIPTION_SWEEP_MS = Math.max(
-    60000,
-    parseInt(process.env.SUBSCRIPTION_SWEEP_MS, 10) || 10 * 60 * 1000,
+const rawSubscriptionSweepMs = parseInt(
+    process.env.SUBSCRIPTION_SWEEP_MS,
+    10,
 );
+const SUBSCRIPTION_SWEEP_MS = Number.isFinite(rawSubscriptionSweepMs)
+    ? Math.max(0, rawSubscriptionSweepMs)
+    : 10 * 60 * 1000;
 let subscriptionSweepInFlight = false;
+let lastSweepNetworkErrorAt = 0;
 
 const EXPIRES_BADGES = new Set(["verified", "verified_gold", "gold", "pro"]);
 const PROTECTED_BADGES = new Set([
@@ -108,6 +112,20 @@ function computeMaishaPayAmount(plan, billingCycle, currency) {
         return Math.round(amountUsd * USD_TO_CDF_RATE_VALUE);
     }
     return amountUsd;
+}
+
+function inferMaishaPayKeyMode(value) {
+    const key = String(value || "").toUpperCase();
+    if (key.startsWith("MP-LIVE")) return "live";
+    if (key.startsWith("MP-SB")) return "sandbox";
+    return "unknown";
+}
+
+function maskKey(value, visible = 10) {
+    const key = String(value || "");
+    if (!key) return "<empty>";
+    if (key.length <= visible) return `${"*".repeat(key.length)}`;
+    return `${key.slice(0, visible)}***`;
 }
 
 function addMonths(date, months) {
@@ -232,7 +250,24 @@ async function sweepExpiredSubscriptions() {
             }
         }
     } catch (error) {
-        console.error("Subscription expiry sweep error:", error);
+        const details = String(error?.details || "").toLowerCase();
+        const message = String(error?.message || "").toLowerCase();
+        const isNetworkTimeout =
+            details.includes("connecttimeouterror") ||
+            details.includes("und_err_connect_timeout") ||
+            message.includes("fetch failed");
+
+        if (isNetworkTimeout) {
+            const now = Date.now();
+            if (now - lastSweepNetworkErrorAt > 60 * 1000) {
+                console.warn(
+                    "Subscription expiry sweep warning: Supabase unreachable (network timeout). Vérifie internet/DNS/firewall ou mets SUBSCRIPTION_SWEEP_MS=0 en local.",
+                );
+                lastSweepNetworkErrorAt = now;
+            }
+        } else {
+            console.error("Subscription expiry sweep error:", error);
+        }
     } finally {
         subscriptionSweepInFlight = false;
     }
@@ -450,6 +485,18 @@ app.post("/api/maishapay/checkout", async (req, res) => {
         }
 
         const callbackUrl = `${CALLBACK_ORIGIN}/api/maishapay/callback?state=${encodeURIComponent(state)}`;
+
+        console.info("[MaishaPay checkout]", {
+            gatewayMode: String(MAISHAPAY_GATEWAY_MODE),
+            publicKey: maskKey(MAISHAPAY_PUBLIC_KEY),
+            secretKey: maskKey(MAISHAPAY_SECRET_KEY),
+            publicKeyMode: inferMaishaPayKeyMode(MAISHAPAY_PUBLIC_KEY),
+            secretKeyMode: inferMaishaPayKeyMode(MAISHAPAY_SECRET_KEY),
+            callbackOrigin: CALLBACK_ORIGIN,
+            plan: planId,
+            billingCycle,
+            currency,
+        });
 
         res.set("Content-Type", "text/html");
         res.send(`
@@ -734,10 +781,22 @@ const isDirectRun = require.main === module;
 if (isDirectRun && SUBSCRIPTION_SWEEP_MS > 0) {
     sweepExpiredSubscriptions();
     setInterval(sweepExpiredSubscriptions, SUBSCRIPTION_SWEEP_MS);
+} else if (isDirectRun && SUBSCRIPTION_SWEEP_MS === 0) {
+    console.info(
+        "Subscription expiry sweep disabled (SUBSCRIPTION_SWEEP_MS=0).",
+    );
 }
 
 // Démarrer le serveur (local/dev uniquement)
 if (isDirectRun) {
+    console.info("MaishaPay configuration summary:", {
+        gatewayMode: String(MAISHAPAY_GATEWAY_MODE),
+        publicKey: maskKey(MAISHAPAY_PUBLIC_KEY),
+        secretKey: maskKey(MAISHAPAY_SECRET_KEY),
+        publicKeyMode: inferMaishaPayKeyMode(MAISHAPAY_PUBLIC_KEY),
+        secretKeyMode: inferMaishaPayKeyMode(MAISHAPAY_SECRET_KEY),
+    });
+
     app.listen(PORT, () => {
         console.log(`Server running on port ${PORT}`);
         console.log(`API endpoints available at /api/*`);
