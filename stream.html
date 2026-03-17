@@ -11,6 +11,7 @@
         <link rel="icon" type="image/svg+xml" href="icons/logo.png" />
         <link rel="stylesheet" href="css/style.css" />
         <link rel="stylesheet" href="css/search-notification.css" />
+        <link rel="stylesheet" href="css/monetization.css" />
         <link
             rel="stylesheet"
             href="css/streaming-analytics.css?v=20260301-1"
@@ -92,6 +93,21 @@
                     >
                         🔊 Activer le son
                     </button>
+                    <div
+                        class="support-overlay support-overlay--stream"
+                        id="stream-support-overlay"
+                        style="display:none;"
+                    >
+                        <button
+                            class="support-btn support-btn-active support-btn-profile large"
+                            id="stream-support-overlay-btn"
+                            title="Soutenir"
+                            aria-label="Soutenir"
+                        >
+                            <img src="icons/soutien.svg" class="support-icon-img" alt="Soutenir">
+                            <span class="support-btn-label">Soutenir</span>
+                        </button>
+                    </div>
                     <div class="stream-overlay">
                         <div id="stream-status" class="stream-status live">
                             🔴 EN DIRECT

@@ -2054,12 +2054,15 @@ function hydrateStreamInfo(stream) {
 }
 
 function updateStreamSupportButton(stream) {
-    const button = document.getElementById('stream-support-btn');
-    if (!button) return;
+    const actionButton = document.getElementById('stream-support-btn');
+    const overlayContainer = document.getElementById('stream-support-overlay');
+    const overlayButton = document.getElementById('stream-support-overlay-btn');
+    if (!actionButton && !overlayContainer && !overlayButton) return;
 
     const hostId = stream?.users?.id || stream?.user_id || null;
     if (!hostId) {
-        button.style.display = 'none';
+        if (actionButton) actionButton.style.display = 'none';
+        if (overlayContainer) overlayContainer.style.display = 'none';
         return;
     }
 
@@ -2080,29 +2083,41 @@ function updateStreamSupportButton(stream) {
     const isSelf = window.currentUser && window.currentUser.id === hostId;
 
     if (!isEligible || isSelf) {
-        button.style.display = 'none';
+        if (actionButton) actionButton.style.display = 'none';
+        if (overlayContainer) overlayContainer.style.display = 'none';
         return;
     }
 
-    button.style.display = 'inline-flex';
-    button.dataset.creatorId = hostId;
-    button.dataset.creatorName = hostName;
-    button.onclick = (event) => {
-        event.preventDefault();
-        event.stopPropagation();
-        if (typeof window.openSupportModal === 'function') {
-            window.openSupportModal(hostId, hostName);
-            return;
-        }
-        if (window.ToastManager) {
-            window.ToastManager.error(
-                'Soutien',
-                'Le module de soutien n’est pas disponible sur cette page.',
-            );
-            return;
-        }
-        alert("Le module de soutien n’est pas disponible sur cette page.");
+    const applySupportHandler = (btn) => {
+        if (!btn) return;
+        btn.dataset.creatorId = hostId;
+        btn.dataset.creatorName = hostName;
+        btn.onclick = (event) => {
+            event.preventDefault();
+            event.stopPropagation();
+            if (typeof window.openSupportModal === 'function') {
+                window.openSupportModal(hostId, hostName);
+                return;
+            }
+            if (window.ToastManager) {
+                window.ToastManager.error(
+                    'Soutien',
+                    'Le module de soutien n’est pas disponible sur cette page.',
+                );
+                return;
+            }
+            alert("Le module de soutien n’est pas disponible sur cette page.");
+        };
     };
+
+    if (actionButton) {
+        actionButton.style.display = 'none';
+        applySupportHandler(actionButton);
+    }
+    if (overlayContainer) {
+        overlayContainer.style.display = 'flex';
+    }
+    applySupportHandler(overlayButton);
 }
 
 function applyStreamRoleUI(isHost) {

@@ -5570,6 +5570,14 @@ function renderUserCard(
         className: "arc-collab-avatars--card-corner",
         fromImmersive: false,
     });
+    const supportOverlayHtml =
+        supportButtonHtml && latestContent?.type !== "text"
+            ? `<div class="support-overlay support-overlay--feed${collabCornerHtml ? " support-overlay--stacked" : ""}">${supportButtonHtml}</div>`
+            : "";
+    const supportInlineHtml =
+        !latestContent?.mediaUrl && !(latestContent?.mediaUrls || []).length
+            ? supportButtonHtml
+            : "";
     const mediaList = Array.isArray(latestContent.mediaUrls)
         ? latestContent.mediaUrls.filter(Boolean)
         : [];
@@ -5592,6 +5600,7 @@ function renderUserCard(
                         <span>Vidéo</span>
                     </div>
                     ${collabCornerHtml}
+                    ${supportOverlayHtml}
                     <div class="card-stats-overlay">
                         <div class="stat-pill">
                             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
@@ -5626,6 +5635,7 @@ function renderUserCard(
                             ${dots}
                         </div>
                         ${collabCornerHtml}
+                        ${supportOverlayHtml}
                         <div class="card-stats-overlay">
                             <div class="stat-pill">
                                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8  -4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
@@ -5639,6 +5649,7 @@ function renderUserCard(
                     <div class="card-media-wrap">
                         <img class="card-media" src="${primaryMediaUrl}" alt="${latestContent.title || "Preview"}" loading="lazy" decoding="async" data-content-id="${latestContent.contentId}">
                         ${collabCornerHtml}
+                        ${supportOverlayHtml}
                         <div class="card-stats-overlay">
                             <div class="stat-pill">
                                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8  -4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
@@ -5850,7 +5861,7 @@ function renderUserCard(
                 <div style="display:flex; justify-content:space-between; align-items:center; gap:0.5rem;">
                     <div style="display:flex; align-items:center; gap:0.5rem; flex-wrap:wrap;">
                         ${badgesHtml}
-                        ${supportButtonHtml}
+                        ${supportInlineHtml}
                     </div>
                     <button class="${courageClass}" data-content-id="${latestContent.contentId}" onclick="event.stopPropagation(); toggleCourage('${latestContent.contentId}', this)">
                         <img src="${courageIcon}" width="16" height="16">
@@ -7359,6 +7370,15 @@ async function renderImmersiveFeed(contents) {
                 className: "arc-collab-avatars--immersive-corner",
                 fromImmersive: true,
             });
+            const immersiveSupportButtonHtml =
+                currentUser &&
+                currentUser.id !== content.userId &&
+                typeof window.generateSupportButtonHTML === "function"
+                    ? window.generateSupportButtonHTML(contentUser, "feed")
+                    : "";
+            const immersiveSupportOverlayHtml = immersiveSupportButtonHtml
+                ? `<div class="support-overlay support-overlay--immersive${collabCornerHtml ? " support-overlay--stacked" : ""}">${immersiveSupportButtonHtml}</div>`
+                : "";
 
             let mediaHtml = "";
             const mediaList = Array.isArray(content.mediaUrls)
@@ -7467,6 +7487,7 @@ async function renderImmersiveFeed(contents) {
             return `
             <div class="immersive-post" data-content-id="${content.contentId}" data-user-id="${content.userId}">
                 <div class="post-content-wrap">
+                    ${immersiveSupportOverlayHtml}
                     ${mediaHtml}
                     <div class="post-info">
                         <div class="immersive-meta-row">
@@ -8406,6 +8427,166 @@ function setupImmersiveArrowNav() {
    RENDERING - PROFILE TIMELINE
    ======================================== */
 
+function formatUsdAmount(value) {
+    const parsed = Number.parseFloat(value);
+    const amount = Number.isFinite(parsed) ? parsed : 0;
+    if (typeof formatCurrency === "function") {
+        return formatCurrency(amount, "USD");
+    }
+    return new Intl.NumberFormat("fr-FR", {
+        style: "currency",
+        currency: "USD",
+    }).format(amount);
+}
+
+function shouldShowProfileMonetization(user, isOwnProfile) {
+    if (!user || !isOwnProfile) return false;
+    const plan = String(user.plan || "").toLowerCase();
+    if (!["medium", "pro"].includes(plan)) return false;
+    if (typeof isPlanActiveByDate === "function") {
+        return isPlanActiveByDate(user);
+    }
+    if (typeof isPlanActiveForUser === "function") {
+        return isPlanActiveForUser(user);
+    }
+    return true;
+}
+
+function buildProfileMonetizationSection(user, isOwnProfile) {
+    if (!shouldShowProfileMonetization(user, isOwnProfile)) return "";
+    const canVideo =
+        typeof canMonetizeVideos === "function" ? canMonetizeVideos(user) : false;
+    const rpmRate =
+        typeof PLANS !== "undefined" && PLANS?.PRO?.rpmRate
+            ? PLANS.PRO.rpmRate
+            : 0.4;
+    const rpmLabel = `${rpmRate.toFixed(2).replace(".", ",")} USD / 1000 vues`;
+    const statusLabel = canVideo
+        ? "Monétisation vidéo active"
+        : "Monétisation vidéo non activée";
+    const statusDetail = canVideo
+        ? "Vos vues éligibles sont comptabilisées automatiquement."
+        : "Passez au plan Pro et atteignez 1000 abonnés pour activer les revenus vidéo.";
+
+    return `
+        <section class="profile-monetization" id="profile-monetization" data-video-enabled="${canVideo ? "true" : "false"}">
+            <div class="section-header">
+                <h3><i class="fas fa-coins"></i> Monétisation</h3>
+                <span class="rpm-badge">${rpmLabel}</span>
+            </div>
+            <p class="profile-monetization-note">
+                Seules les vidéos de plus de 60 secondes sont éligibles à la monétisation. Les soutiens incluent les dons des autres utilisateurs.
+            </p>
+            <div class="revenue-cards">
+                <div class="revenue-card">
+                    <div class="card-icon video">
+                        <i class="fas fa-video"></i>
+                    </div>
+                    <div class="card-content">
+                        <span class="card-label">Revenus vidéos</span>
+                        <span class="card-value" id="profile-video-revenue">--</span>
+                        <span class="card-count" id="profile-video-views">-- vues éligibles</span>
+                    </div>
+                </div>
+
+                <div class="revenue-card">
+                    <div class="card-icon support">
+                        <i class="fas fa-heart"></i>
+                    </div>
+                    <div class="card-content">
+                        <span class="card-label">Soutiens reçus</span>
+                        <span class="card-value" id="profile-support-revenue">--</span>
+                        <span class="card-count" id="profile-support-count">-- soutien</span>
+                    </div>
+                </div>
+
+                <div class="revenue-card highlight">
+                    <div class="card-icon total">
+                        <i class="fas fa-piggy-bank"></i>
+                    </div>
+                    <div class="card-content">
+                        <span class="card-label">Total reçu</span>
+                        <span class="card-value" id="profile-total-revenue">--</span>
+                        <span class="card-count">Soutiens + vues éligibles</span>
+                    </div>
+                </div>
+            </div>
+            <div class="profile-monetization-status">
+                <span class="status-badge ${canVideo ? "active" : "inactive"}">
+                    <i class="fas fa-${canVideo ? "check-circle" : "lock"}"></i> ${statusLabel}
+                </span>
+                <span class="status-detail">${statusDetail}</span>
+            </div>
+        </section>
+    `;
+}
+
+async function loadProfileMonetizationData(userId) {
+    const section = document.getElementById("profile-monetization");
+    if (!section || !userId) return;
+
+    const user =
+        getUser(userId) ||
+        (window.currentUserId === userId ? window.currentUser : null);
+    const canVideo =
+        typeof canMonetizeVideos === "function" ? canMonetizeVideos(user) : false;
+    const rpmRate =
+        typeof PLANS !== "undefined" && PLANS?.PRO?.rpmRate
+            ? PLANS.PRO.rpmRate
+            : 0.4;
+
+    try {
+        const [videoStatsResult, supportTxResult] = await Promise.all([
+            typeof getCreatorVideoStats === "function"
+                ? getCreatorVideoStats(userId, "all")
+                : { data: null },
+            typeof getCreatorTransactions === "function"
+                ? getCreatorTransactions(userId, { type: "support" })
+                : { data: [] },
+        ]);
+
+        const stats = videoStatsResult?.data || {};
+        let eligibleViews = Number(
+            stats.totalEligibleViews || stats.totalViews || 0,
+        );
+        if (!Number.isFinite(eligibleViews)) eligibleViews = 0;
+
+        const supportTransactions = Array.isArray(supportTxResult?.data)
+            ? supportTxResult.data
+            : [];
+        const supportTotal = supportTransactions.reduce((sum, tx) => {
+            const net = Number.parseFloat(tx?.amount_net_creator);
+            if (Number.isFinite(net)) return sum + net;
+            const gross = Number.parseFloat(tx?.amount_gross);
+            if (Number.isFinite(gross)) return sum + gross * 0.8;
+            return sum;
+        }, 0);
+
+        const supportCount = supportTransactions.length;
+        const videoRevenue = canVideo ? (eligibleViews / 1000) * rpmRate : 0;
+        const totalRevenue = supportTotal + videoRevenue;
+
+        const setText = (id, value) => {
+            const el = document.getElementById(id);
+            if (el) el.textContent = value;
+        };
+
+        setText("profile-video-revenue", formatUsdAmount(videoRevenue));
+        setText(
+            "profile-video-views",
+            `${eligibleViews.toLocaleString("fr-FR")} vues éligibles${canVideo ? "" : " • Pro requis"}`,
+        );
+        setText("profile-support-revenue", formatUsdAmount(supportTotal));
+        setText(
+            "profile-support-count",
+            `${supportCount} soutien${supportCount !== 1 ? "s" : ""}`,
+        );
+        setText("profile-total-revenue", formatUsdAmount(totalRevenue));
+    } catch (error) {
+        console.error("Erreur chargement monétisation profil:", error);
+    }
+}
+
 async function renderProfileTimeline(userId) {
     console.log("renderProfileTimeline appelé pour userId:", userId);
     console.log("allUsers contient:", allUsers.length, "utilisateurs");
@@ -9275,9 +9456,12 @@ async function renderProfileTimeline(userId) {
             : "";
     const supportButtonHtml =
         !isOwnProfile &&
-        window.currentUser &&
         typeof window.generateSupportButtonHTML === "function"
             ? window.generateSupportButtonHTML(user, "profile")
+            : "";
+    const supportProfileHtml =
+        !isOwnProfile && supportButtonHtml
+            ? `<div class="profile-support-cta">${supportButtonHtml}</div>`
             : "";
 
     const noArcNoticeHtml = !hasArcs
@@ -9313,6 +9497,11 @@ async function renderProfileTimeline(userId) {
     `
         : "";
 
+    const monetizationSectionHtml = buildProfileMonetizationSection(
+        user,
+        isOwnProfile,
+    );
+
     const profileHtml = `
         ${bannerHtml}
         <div class="profile-hero">
@@ -9325,6 +9514,7 @@ async function renderProfileTimeline(userId) {
             <p class="profile-bio" style="max-width: 600px; margin: 0.5rem auto; line-height: 1.5;">${user.bio || ""}</p>
             ${userBadgesHtml}
             ${renderProfileSocialLinks(userId)}
+            ${supportProfileHtml}
             
             ${
                 !isOwnProfile
@@ -9345,7 +9535,6 @@ async function renderProfileTimeline(userId) {
                     ${followButtonHtml}
                     ${messageButtonHtml}
                     ${shareButtonHtml}
-                    ${supportButtonHtml}
                 </div>
                 ${adminInlineHtml}
             `
@@ -9412,6 +9601,7 @@ async function renderProfileTimeline(userId) {
             </div>
         </section>
         ${analyticsSectionHtml}
+        ${monetizationSectionHtml}
         <div class="timeline">
             ${window.selectedArcId && selectedArc ? `<div style="padding: 1rem; background: rgba(255,255,255,0.05); border-radius: 8px; margin-bottom: 1rem; text-align: center;">Affichage des traces pour l'ARC : <strong>${selectedArc.title}</strong></div>` : ""}
             ${timelinesHtml}
@@ -9475,6 +9665,7 @@ async function renderProfileIntoContainer(userId) {
         if (window.renderWeeklyProgressChart)
             window.renderWeeklyProgressChart(userId);
         if (window.renderInfluenceReach) window.renderInfluenceReach(userId);
+        loadProfileMonetizationData(userId);
         maybeShowAmbassadorWelcome(userId);
     };
 

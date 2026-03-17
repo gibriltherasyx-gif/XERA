@@ -602,8 +602,9 @@ app.post("/api/admin/gift-plan", async (req, res) => {
             : badgeForPlan;
         const followersCount = Number(profile.followers_count || 0);
         const isMonetized =
-            (normalizedPlan === "medium" || normalizedPlan === "pro") &&
-            followersCount >= 1000;
+            normalizedPlan === "pro"
+                ? true
+                : normalizedPlan === "medium" && followersCount >= 1000;
 
         const { data: updated, error: updateError } = await supabase
             .from("users")

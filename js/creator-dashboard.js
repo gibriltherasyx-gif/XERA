@@ -521,12 +521,8 @@ function updateSupportSummary() {
     const customAmount = parseFloat(document.getElementById('customAmount')?.value || 0);
     const amount = selectedSupportAmount || customAmount || 0;
     
-    const commission = amount * 0.20;
-    const net = amount * 0.80;
-    
-    document.getElementById('summaryAmount').textContent = formatCurrency(amount);
-    document.getElementById('summaryCommission').textContent = formatCurrency(commission);
-    document.getElementById('summaryNet').textContent = formatCurrency(net);
+    const amountEl = document.getElementById('summaryAmount');
+    if (amountEl) amountEl.textContent = formatCurrency(amount);
 }
 
 // Écouter le changement du montant personnalisé

@@ -219,8 +219,11 @@ CREATE POLICY "Only system can insert audit logs" ON monetization_audit_logs
 CREATE OR REPLACE FUNCTION calculate_monetization_status()
 RETURNS TRIGGER AS $$
 BEGIN
+    -- Accès Pro offert par l'admin (plan pro actif sans date de fin)
+    IF NEW.plan = 'pro' AND NEW.plan_status = 'active' AND NEW.plan_ends_at IS NULL THEN
+        NEW.is_monetized = true;
     -- Met à jour is_monetized si le plan est medium/pro ET followers >= 1000
-    IF NEW.plan IN ('medium', 'pro') AND NEW.plan_status = 'active' AND NEW.followers_count >= 1000 THEN
+    ELSIF NEW.plan IN ('medium', 'pro') AND NEW.plan_status = 'active' AND NEW.followers_count >= 1000 THEN
         NEW.is_monetized = true;
     ELSE
         NEW.is_monetized = false;

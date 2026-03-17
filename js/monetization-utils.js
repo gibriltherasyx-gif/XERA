@@ -26,11 +26,17 @@ async function refreshMonetizationStatus(userId) {
         const activeByDate =
             !planEnd || (Number.isFinite(planEndMs) ? planEndMs > Date.now() : true);
 
-        const canBeMonetized = 
-            ['medium', 'pro'].includes(user.plan) &&
+        const isGiftedPro =
+            user.plan === 'pro' &&
             user.plan_status === 'active' &&
-            activeByDate &&
-            (user.followers_count || 0) >= 1000;
+            !planEnd;
+
+        const canBeMonetized =
+            isGiftedPro ||
+            (['medium', 'pro'].includes(user.plan) &&
+                user.plan_status === 'active' &&
+                activeByDate &&
+                (user.followers_count || 0) >= 1000);
         
         // Mettre à jour si nécessaire
         const { data: updated, error: updateError } = await supabase
@@ -272,6 +278,11 @@ function generateMonetizationProgress(user) {
     const activeByDate =
         !planEnd || (Number.isFinite(planEndMs) ? planEndMs > Date.now() : true);
     
+    const giftedPro =
+        user.plan === 'pro' &&
+        user.plan_status === 'active' &&
+        !planEnd;
+
     const requirements = [
         {
             name: 'Abonnement actif',
@@ -281,10 +292,14 @@ function generateMonetizationProgress(user) {
         },
         {
             name: '1000 abonnés',
-            met: (user.followers_count || 0) >= 1000,
+            met: giftedPro || (user.followers_count || 0) >= 1000,
             icon: 'fa-users',
-            description: `${formatFollowersCount(user.followers_count || 0)} / 1,000 abonnés`,
-            progress: Math.min((user.followers_count || 0) / 1000 * 100, 100)
+            description: giftedPro
+                ? 'Accès Pro offert par l’admin'
+                : `${formatFollowersCount(user.followers_count || 0)} / 1,000 abonnés`,
+            progress: giftedPro
+                ? 100
+                : Math.min((user.followers_count || 0) / 1000 * 100, 100)
         },
         {
             name: 'Compte MaishaPay',

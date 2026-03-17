@@ -43,7 +43,12 @@ function generatePlanBadgeHTML(user, context = 'profile') {
     
     const color = planColors[user.plan] || '#95a5a6';
     const label = planLabels[user.plan] || user.plan;
-    const verified = user.is_monetized ? '<i class="fas fa-check-circle" title="Monétisation activée"></i>' : '';
+    const hasMonetization =
+        user.is_monetized === true ||
+        (typeof isGiftedPro === 'function' && isGiftedPro(user));
+    const verified = hasMonetization
+        ? '<i class="fas fa-check-circle" title="Monétisation activée"></i>'
+        : '';
     
     return `
         <span class="user-plan-badge" style="
@@ -70,19 +75,23 @@ function generatePlanBadgeHTML(user, context = 'profile') {
 // Générer le bouton de soutien
 function generateSupportButtonHTML(user, context = 'profile') {
     const canSupport = canReceiveSupport(user);
-    const size = context === 'feed' ? 'small' : 'medium';
+    const size = context === 'profile' ? 'large' : 'large';
     
     if (!canSupport) {
         return '';
     }
-    
+
+    const buttonClass = `support-btn support-btn-active support-btn-profile ${size}`;
+    const labelHtml = '<span class="support-btn-label">Soutenir</span>';
+
     return `
-        <button class="support-btn support-btn-active support-icon ${size}" 
-                onclick="openSupportModal('${user.id}', '${user.name || 'Créateur'}')"
+        <button class="${buttonClass}" 
+                onclick="event.preventDefault(); event.stopPropagation(); openSupportModal('${user.id}', '${user.name || 'Créateur'}')"
                 data-creator-id="${user.id}"
                 title="Soutenir ce créateur"
                 aria-label="Soutenir ce créateur">
             <img src="icons/soutien.svg" alt="" class="support-icon-img">
+            ${labelHtml}
         </button>
     `;
 }
@@ -120,14 +129,6 @@ function createSupportModal() {
                     <div class="summary-row">
                         <span>Montant</span>
                         <span id="global-summary-amount">$0.00</span>
-                    </div>
-                    <div class="summary-row">
-                        <span>Commission XERA (20%)</span>
-                        <span id="global-summary-commission">$0.00</span>
-                    </div>
-                    <div class="summary-row total">
-                        <span>Créateur reçoit</span>
-                        <span id="global-summary-net">$0.00</span>
                     </div>
                 </div>
                 <button class="btn-primary btn-full" id="global-support-submit" onclick="processGlobalSupport()" disabled>
@@ -223,12 +224,9 @@ function handleGlobalCustomAmount() {
 // Mettre à jour le résumé
 function updateGlobalSupportSummary() {
     const amount = globalSupportState.amount || 0;
-    const commission = amount * 0.20;
-    const net = amount * 0.80;
     
-    document.getElementById('global-summary-amount').textContent = formatCurrency(amount);
-    document.getElementById('global-summary-commission').textContent = formatCurrency(commission);
-    document.getElementById('global-summary-net').textContent = formatCurrency(net);
+    const amountEl = document.getElementById('global-summary-amount');
+    if (amountEl) amountEl.textContent = formatCurrency(amount);
     
     // Activer/désactiver le bouton
     const submitBtn = document.getElementById('global-support-submit');

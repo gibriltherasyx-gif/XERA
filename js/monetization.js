@@ -87,12 +87,25 @@ function canReceiveSupport(user) {
     return hasValidPlan && hasActiveSubscription;
 }
 
+// Vérifier si un créateur a un plan Pro offert par un admin
+function isGiftedPro(user) {
+    if (!user) return false;
+    const plan = String(user.plan || '').toLowerCase();
+    const status = String(user.plan_status || '').toLowerCase();
+    const planEnd = user.plan_ends_at || user.planEndsAt || null;
+    return plan === 'pro' && status === 'active' && !planEnd;
+}
+
 // Vérifier si un créateur peut monétiser ses vidéos
 function canMonetizeVideos(user) {
     if (!user) return false;
-    
-    return user.plan === 'pro' && 
-           isPlanActiveForUser(user) && 
+
+    if (isGiftedPro(user)) {
+        return true;
+    }
+
+    return user.plan === 'pro' &&
+           isPlanActiveForUser(user) &&
            (user.followers_count || 0) >= 1000 &&
            user.is_monetized === true;
 }
@@ -621,6 +634,7 @@ if (typeof module !== 'undefined' && module.exports) {
         PLANS,
         PAYMENT_RULES,
         canReceiveSupport,
+        isGiftedPro,
         canMonetizeVideos,
         getUserPlan,
         formatCurrency,
