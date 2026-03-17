@@ -9280,23 +9280,38 @@ async function renderProfileTimeline(userId) {
             ? window.generateSupportButtonHTML(user, "profile")
             : "";
 
-    const weeklyChartHtml = `
+    const noArcNoticeHtml = !hasArcs
+        ? `
+        <div class="no-arc-notice" style="margin: 1.5rem 0; padding: 1rem 1.25rem; border: 1px dashed var(--border-color); border-radius: 12px; color: var(--text-secondary); text-align: center;">
+            L'utilisateur n'a pas encore créé d'ARC.
+        </div>
+    `
+        : "";
+
+    const weeklyChartHtml = hasArcs
+        ? `
         <div class="weekly-progress-card" style="margin: 1.5rem 0; background: var(--surface-color); border: 1px solid var(--border-color); border-radius: 14px; padding: 1.25rem;">
             <div style="display:flex; justify-content:space-between; align-items:center; gap:1rem; flex-wrap:wrap;">
                 <div>
                     <h4 style="margin:0;">Progression hebdomadaire</h4>
                     <p style="margin:0; color: var(--text-secondary); font-size:0.9rem;">Survolez pour voir les traces par jour.</p>
                 </div>
-                ${hasArcs ? "" : `<button class="btn-secondary" onclick="window.openCreateModal && window.openCreateModal()" style="padding:0.45rem 0.8rem; border-radius:10px;">Créer un ARC</button>`}
+                <button class="btn-secondary" onclick="window.openCreateModal && window.openCreateModal()" style="padding:0.45rem 0.8rem; border-radius:10px;">Créer un ARC</button>
             </div>
             <div style="margin-top:1rem; min-height:220px;">
-                ${hasArcs || userTraces.length > 0
-                    ? `<canvas id="weekly-progress-chart-${userId}" aria-label="Progression hebdomadaire" role="img"></canvas>`
-                    : `<div style="padding:1rem; color: var(--text-secondary);">Pas encore d'ARC ? <a href="#" onclick="window.openCreateModal && window.openCreateModal(); return false;">Créez-en un</a> pour débloquer votre trajectoire.</div>`
-                }
+                <canvas id="weekly-progress-chart-${userId}" aria-label="Progression hebdomadaire" role="img"></canvas>
             </div>
         </div>
-    `;
+    `
+        : "";
+
+    const analyticsSectionHtml = hasArcs
+        ? `
+        <div class="profile-analytics-section ${!isOwnProfile ? "compact" : ""}" style="margin: 2.5rem 0;">
+            <div id="profile-analytics" class="analytics-dashboard ${!isOwnProfile ? "analytics-dashboard-compact" : ""}" style="padding: 0; margin: 0; max-width: 100%;"></div>
+        </div>
+    `
+        : "";
 
     const profileHtml = `
         ${bannerHtml}
@@ -9365,7 +9380,7 @@ async function renderProfileTimeline(userId) {
         ${arcsHtml}
         ${collabRequestsHtml}
         ${projectsHtml}
-        ${weeklyChartHtml}
+        ${hasArcs ? weeklyChartHtml : noArcNoticeHtml}
         <section class="influence-section">
             <h3 class="section-title">Influence & Reach</h3>
             <div class="influence-grid">
@@ -9396,9 +9411,7 @@ async function renderProfileTimeline(userId) {
                 </div>
             </div>
         </section>
-        <div class="profile-analytics-section ${!isOwnProfile ? "compact" : ""}" style="margin: 2.5rem 0;">
-            <div id="profile-analytics" class="analytics-dashboard ${!isOwnProfile ? "analytics-dashboard-compact" : ""}" style="padding: 0; margin: 0; max-width: 100%;"></div>
-        </div>
+        ${analyticsSectionHtml}
         <div class="timeline">
             ${window.selectedArcId && selectedArc ? `<div style="padding: 1rem; background: rgba(255,255,255,0.05); border-radius: 8px; margin-bottom: 1rem; text-align: center;">Affichage des traces pour l'ARC : <strong>${selectedArc.title}</strong></div>` : ""}
             ${timelinesHtml}
