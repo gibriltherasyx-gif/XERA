@@ -19,9 +19,9 @@ const {
     RETURN_REMINDER_WINDOW_MINUTES = "15",
     RETURN_REMINDER_SWEEP_MS = "60000",
     USD_TO_CDF_RATE = "2300",
-    CALLBACK_BASE_URL = "",
-    MAISHAPAY_PUBLIC_KEY = "MP-LIVEPK-1afkdoHof8UcPzo.o$LKyRlHit$fGWjaFwcvfy5GH1uTf1V5cMa2Hej$e0H9AHKWZ0b0hmnxUc7EiY2$ynF1ydIpON$e4GfabzJ2RJAU58zn.vAY42hg$x3q",
-    MAISHAPAY_SECRET_KEY = "MP-LIVEPK-1Ny4TiF0Zj9QS3c10fzguaw62vQdG1U$xt93dSmBMxckDlcG$R6nuje$PlKF2Ib.hB..F$S.yuR2K2hyMwWIT0s8IF6Lor6S$P6e42s1yKuoJnNFbg$fwf1q",
+    CALLBACK_BASE_URL = "https://xxxxx.loca.lt",
+    MAISHAPAY_PUBLIC_KEY = "MP-SBPK-cl4eApp$yQ$WLHKqKL211fVAOgL1SqkRzQ0QW712KOylxrMRm2IFUmI6ypxpGfLYm0YA2$QXYym0RNhmzaiDd6e1Po6$.Em9E$0Qm.Yye$E242x10Q2/JoN7",
+    MAISHAPAY_SECRET_KEY = "MP-SBSK-orLYwbv0GsBcTA7AKxxVoV8efPm28nAONyy1$Hffk0Nm264Nv3E$SM7WHRiJH0yI1qe23Gk$OL9RBAKvWd38$WLWdsrcSSkum1ebVubt50OrU/P$$Qud28Wp",
     MAISHAPAY_GATEWAY_MODE = "1",
     MAISHAPAY_CHECKOUT_URL = "https://marchand.maishapay.online/payment/vers1.0/merchant/checkout",
     MAISHAPAY_CALLBACK_SECRET = "31aca49d0e1d9deeb8857a01eab9c38014508ad216b587ee9662823f6cd9a633",
@@ -585,13 +585,10 @@ app.post("/api/admin/gift-plan", async (req, res) => {
             .maybeSingle();
 
         if (profileError) {
-            return res
-                .status(500)
-                .json({
-                    error:
-                        profileError.message ||
-                        "Impossible de charger le profil.",
-                });
+            return res.status(500).json({
+                error:
+                    profileError.message || "Impossible de charger le profil.",
+            });
         }
         if (!profile) {
             return res.status(404).json({ error: "Utilisateur introuvable." });
@@ -623,11 +620,9 @@ app.post("/api/admin/gift-plan", async (req, res) => {
             .single();
 
         if (updateError) {
-            return res
-                .status(500)
-                .json({
-                    error: updateError.message || "Mise à jour impossible.",
-                });
+            return res.status(500).json({
+                error: updateError.message || "Mise à jour impossible.",
+            });
         }
 
         return res.json({ success: true, user: updated });
