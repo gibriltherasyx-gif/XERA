@@ -826,8 +826,12 @@ function setNavProfileAvatar(rawAvatar, userId = null) {
     const avatarSource = user && user.avatar ? user.avatar : rawAvatar;
     const avatarValue = String(avatarSource);
     if (user && isGifUrl(avatarValue) && !hasActivePaidPlan(user)) {
-        navAvatar.src = "https://placehold.co/36?text=👤";
-        return;
+        const snapshot = getGifSnapshot(avatarValue);
+        if (snapshot) {
+            navAvatar.src = snapshot;
+            return;
+        }
+        queueGifSnapshot(user.id, "avatar", avatarValue);
     }
     navAvatar.src = avatarValue.startsWith("http")
         ? withCacheBust(avatarValue)
@@ -3732,18 +3736,140 @@ function isGifUrl(value) {
     return lower.includes(".gif");
 }
 
+const GIF_SNAPSHOT_CACHE_KEY = "xera:gif:snapshots";
+const GIF_SNAPSHOT_CACHE_MAX = 50;
+const gifSnapshotCache = new Map();
+const gifSnapshotInFlight = new Set();
+
+function loadGifSnapshotCache() {
+    if (gifSnapshotCache.size > 0) return;
+    try {
+        const raw = localStorage.getItem(GIF_SNAPSHOT_CACHE_KEY);
+        if (!raw) return;
+        const parsed = JSON.parse(raw);
+        Object.entries(parsed || {}).forEach(([url, entry]) => {
+            if (entry && entry.data) {
+                gifSnapshotCache.set(url, entry);
+            }
+        });
+    } catch (e) {
+        // ignore cache errors
+    }
+}
+
+function persistGifSnapshotCache() {
+    try {
+        const entries = Array.from(gifSnapshotCache.entries());
+        if (entries.length > GIF_SNAPSHOT_CACHE_MAX) {
+            entries
+                .sort((a, b) => (a[1]?.ts || 0) - (b[1]?.ts || 0))
+                .slice(0, entries.length - GIF_SNAPSHOT_CACHE_MAX)
+                .forEach(([url]) => gifSnapshotCache.delete(url));
+        }
+        const payload = {};
+        gifSnapshotCache.forEach((entry, url) => {
+            payload[url] = entry;
+        });
+        localStorage.setItem(GIF_SNAPSHOT_CACHE_KEY, JSON.stringify(payload));
+    } catch (e) {
+        // ignore cache errors
+    }
+}
+
+function getGifSnapshot(url) {
+    if (!url) return null;
+    loadGifSnapshotCache();
+    const entry = gifSnapshotCache.get(url);
+    return entry?.data || null;
+}
+
+function setGifSnapshot(url, dataUrl) {
+    if (!url || !dataUrl) return;
+    gifSnapshotCache.set(url, { data: dataUrl, ts: Date.now() });
+    persistGifSnapshotCache();
+}
+
+function createGifSnapshot(url) {
+    return new Promise((resolve) => {
+        if (!url) return resolve(null);
+        const img = new Image();
+        img.crossOrigin = "anonymous";
+        img.onload = () => {
+            try {
+                const canvas = document.createElement("canvas");
+                const width = img.naturalWidth || img.width;
+                const height = img.naturalHeight || img.height;
+                canvas.width = width;
+                canvas.height = height;
+                const ctx = canvas.getContext("2d");
+                if (!ctx) return resolve(null);
+                ctx.drawImage(img, 0, 0, width, height);
+                const dataUrl = canvas.toDataURL("image/png");
+                return resolve(dataUrl);
+            } catch (err) {
+                return resolve(null);
+            }
+        };
+        img.onerror = () => resolve(null);
+        img.src = url;
+    });
+}
+
+function queueGifSnapshot(userId, field, url) {
+    if (!userId || !url || !isGifUrl(url)) return;
+    if (gifSnapshotInFlight.has(url)) return;
+    gifSnapshotInFlight.add(url);
+    createGifSnapshot(url)
+        .then((dataUrl) => {
+            if (!dataUrl) return;
+            setGifSnapshot(url, dataUrl);
+            applyUserUpdateToCache({ id: userId, [field]: dataUrl });
+
+            if (field === "avatar" && window.currentUser?.id === userId) {
+                setNavProfileAvatar(dataUrl, userId);
+            }
+
+            if (
+                window.currentProfileViewed &&
+                window.currentProfileViewed === userId &&
+                document.querySelector("#profile.active")
+            ) {
+                renderProfileIntoContainer(userId);
+            } else if (document.querySelector(".discover-grid")) {
+                renderDiscoverGrid();
+            }
+        })
+        .finally(() => {
+            gifSnapshotInFlight.delete(url);
+        });
+}
+
 function canUseGifProfile() {
     const userId = window.currentUser && window.currentUser.id;
     const profile = userId ? getUser(userId) : null;
-    return hasActivePaidPlan(profile) || isCurrentUserVerified();
+    return hasActivePaidPlan(profile);
 }
 
 function sanitizeUserMedia(user) {
     if (!user) return user;
     if (hasActivePaidPlan(user)) return user;
     const sanitized = { ...user };
-    if (isGifUrl(sanitized.avatar)) sanitized.avatar = null;
-    if (isGifUrl(sanitized.banner)) sanitized.banner = null;
+    if (isGifUrl(sanitized.avatar)) {
+        const snapshot = getGifSnapshot(sanitized.avatar);
+        if (snapshot) {
+            sanitized.avatar = snapshot;
+        } else {
+            queueGifSnapshot(user.id, "avatar", sanitized.avatar);
+        }
+    }
+    if (isGifUrl(sanitized.banner)) {
+        const snapshot = getGifSnapshot(sanitized.banner);
+        if (snapshot) {
+            sanitized.banner = snapshot;
+        } else {
+            queueGifSnapshot(user.id, "banner", sanitized.banner);
+        }
+    }
     return sanitized;
 }
 
@@ -5428,7 +5554,7 @@ function renderUserCard(
     const badgesHtml = renderUserBadges(userId);
     const monetizationBadgeHtml =
         typeof window.generatePlanBadgeHTML === "function"
-            ? window.generatePlanBadgeHTML(user)
+            ? window.generatePlanBadgeHTML(user, "feed")
             : "";
     const supportButtonHtml =
         currentUser &&
@@ -9145,7 +9271,7 @@ async function renderProfileTimeline(userId) {
     const profileRoleBadgeHtml = renderProfileRoleBadgeByUser(user);
     const monetizationBadgeHtml =
         typeof window.generatePlanBadgeHTML === "function"
-            ? window.generatePlanBadgeHTML(user)
+            ? window.generatePlanBadgeHTML(user, "profile")
             : "";
     const supportButtonHtml =
         !isOwnProfile &&
@@ -10400,7 +10526,7 @@ async function openSettings(userId) {
                 const isGif = isGifCandidate(file);
                 if (isGif && !canUseGifProfile()) {
                     throw new Error(
-                        "Vous devez avoir un plan actif ou être vérifié pour utiliser un GIF en profil.",
+                        "Astuce: les avatars/bannières animés sont réservés aux plans supérieurs. Passez à un plan Standard, Medium ou Pro pour débloquer cet avantage.",
                     );
                 }
 
@@ -10602,7 +10728,7 @@ async function openSettings(userId) {
                 return {
                     valid: false,
                     error:
-                        "Vous devez avoir un plan actif ou être vérifié pour utiliser un GIF en profil.",
+                        "Astuce: les avatars animés sont réservés aux plans supérieurs. Passez à un plan Standard, Medium ou Pro pour les débloquer.",
                 };
             },
             onUpload: (result) => {
@@ -10643,7 +10769,7 @@ async function openSettings(userId) {
                 return {
                     valid: false,
                     error:
-                        "Vous devez avoir un plan actif ou être vérifié pour utiliser un GIF en profil.",
+                        "Astuce: les bannières animées sont réservées aux plans supérieurs. Passez à un plan Standard, Medium ou Pro pour les débloquer.",
                 };
             },
             onUpload: (result) => {

@@ -19,10 +19,13 @@ function initMonetizationUI() {
 }
 
 // Générer le HTML pour le badge de plan
-function generatePlanBadgeHTML(user) {
+function generatePlanBadgeHTML(user, context = 'profile') {
     if (!user || !user.plan || user.plan === 'free') return '';
     if (String(user.plan_status || '').toLowerCase() !== 'active') return '';
     if (typeof isPlanActiveForUser === 'function' && !isPlanActiveForUser(user)) {
+        return '';
+    }
+    if (context !== 'profile') {
         return '';
     }
     
@@ -341,7 +344,7 @@ function integrateMonetizationInProfile(profileElement, user) {
     // Ajouter le badge de plan
     const nameElement = profileElement.querySelector('.profile-name, .user-name, h1, h2');
     if (nameElement && user.plan && user.plan !== 'free') {
-        const badgeHTML = generatePlanBadgeHTML(user);
+        const badgeHTML = generatePlanBadgeHTML(user, 'profile');
         if (!nameElement.querySelector('.user-plan-badge')) {
             nameElement.insertAdjacentHTML('beforeend', badgeHTML);
         }
@@ -364,7 +367,7 @@ function integrateMonetizationInContentCard(cardElement, user) {
     // Ajouter le badge de plan sur le nom de l'auteur
     const authorElement = cardElement.querySelector('.content-author, .post-author');
     if (authorElement && user.plan && user.plan !== 'free') {
-        const badgeHTML = generatePlanBadgeHTML(user);
+        const badgeHTML = generatePlanBadgeHTML(user, 'feed');
         if (!authorElement.querySelector('.user-plan-badge')) {
             authorElement.insertAdjacentHTML('beforeend', badgeHTML);
         }
