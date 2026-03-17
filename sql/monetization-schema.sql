@@ -11,7 +11,6 @@ ALTER TABLE users ADD COLUMN IF NOT EXISTS plan TEXT CHECK (plan IN ('free', 'st
 ALTER TABLE users ADD COLUMN IF NOT EXISTS plan_status TEXT CHECK (plan_status IN ('inactive', 'active', 'past_due', 'canceled')) DEFAULT 'inactive';
 ALTER TABLE users ADD COLUMN IF NOT EXISTS plan_ends_at TIMESTAMP WITH TIME ZONE;
 ALTER TABLE users ADD COLUMN IF NOT EXISTS is_monetized BOOLEAN DEFAULT false;
-ALTER TABLE users ADD COLUMN IF NOT EXISTS payapay_account_id TEXT;
 ALTER TABLE users ADD COLUMN IF NOT EXISTS followers_count INTEGER DEFAULT 0;
 
 -- Index pour les performances
@@ -31,8 +30,6 @@ CREATE TABLE IF NOT EXISTS subscriptions (
     started_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
     current_period_start TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
     current_period_end TIMESTAMP WITH TIME ZONE,
-    payapay_subscription_id TEXT,
-    payapay_customer_id TEXT,
     cancel_at_period_end BOOLEAN DEFAULT false,
     canceled_at TIMESTAMP WITH TIME ZONE,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
@@ -43,7 +40,6 @@ CREATE TABLE IF NOT EXISTS subscriptions (
 CREATE INDEX IF NOT EXISTS idx_subscriptions_user_id ON subscriptions(user_id);
 CREATE INDEX IF NOT EXISTS idx_subscriptions_status ON subscriptions(status);
 CREATE INDEX IF NOT EXISTS idx_subscriptions_plan ON subscriptions(plan);
-CREATE INDEX IF NOT EXISTS idx_subscriptions_payapay_id ON subscriptions(payapay_subscription_id);
 
 -- Trigger pour updated_at
 CREATE TRIGGER update_subscriptions_updated_at BEFORE UPDATE ON subscriptions
@@ -62,8 +58,6 @@ CREATE TABLE IF NOT EXISTS transactions (
     amount_net_creator DECIMAL(10, 2) NOT NULL,
     amount_commission_xera DECIMAL(10, 2) NOT NULL,
     currency TEXT DEFAULT 'USD',
-    payapay_payment_id TEXT,
-    payapay_transfer_id TEXT,
     status TEXT NOT NULL CHECK (status IN ('pending', 'succeeded', 'failed', 'refunded', 'canceled')),
     description TEXT,
     metadata JSONB,
@@ -77,7 +71,6 @@ CREATE INDEX IF NOT EXISTS idx_transactions_to_user ON transactions(to_user_id);
 CREATE INDEX IF NOT EXISTS idx_transactions_type ON transactions(type);
 CREATE INDEX IF NOT EXISTS idx_transactions_status ON transactions(status);
 CREATE INDEX IF NOT EXISTS idx_transactions_created_at ON transactions(created_at);
-CREATE INDEX IF NOT EXISTS idx_transactions_payapay_id ON transactions(payapay_payment_id);
 
 -- Trigger pour updated_at
 CREATE TRIGGER update_transactions_updated_at BEFORE UPDATE ON transactions
@@ -126,7 +119,6 @@ CREATE TABLE IF NOT EXISTS video_payouts (
     amount_net_creator DECIMAL(10, 2) NOT NULL,
     amount_commission_xera DECIMAL(10, 2) NOT NULL,
     status TEXT NOT NULL CHECK (status IN ('pending', 'processing', 'paid', 'failed')),
-    payapay_payout_id TEXT,
     paid_at TIMESTAMP WITH TIME ZONE,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
@@ -137,7 +129,6 @@ CREATE TABLE IF NOT EXISTS video_payouts (
 CREATE INDEX IF NOT EXISTS idx_video_payouts_creator_id ON video_payouts(creator_id);
 CREATE INDEX IF NOT EXISTS idx_video_payouts_status ON video_payouts(status);
 CREATE INDEX IF NOT EXISTS idx_video_payouts_period_month ON video_payouts(period_month);
-CREATE INDEX IF NOT EXISTS idx_video_payouts_payapay_id ON video_payouts(payapay_payout_id);
 
 -- Trigger pour updated_at
 CREATE TRIGGER update_video_payouts_updated_at BEFORE UPDATE ON video_payouts

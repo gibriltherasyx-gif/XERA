@@ -11,13 +11,13 @@ Run
 
 Endpoints actifs
 - GET /api/health : indique que les paiements sont désactivés
-- POST /api/users/upsert : crée/met à jour un utilisateur (id, email, paypal_email)
+- POST /api/users/upsert : crée/met à jour un utilisateur (id, email)
 - POST /api/push/subscribe : enregistre un abonnement Web Push
   - body minimal: `{ userId, subscription }`
   - body recommandé: `{ userId, subscription, timezone, reminderEnabled }`
 
 Note
-- Toute la logique PayPal a été retirée. On réintroduira Stripe plus tard.
+- Toute la logique de paiement historique a été retirée. On réintroduira un provider plus tard.
 
 Notifications push (nouvelle infra)
 - Générer des clés VAPID : `npx web-push generate-vapid-keys`

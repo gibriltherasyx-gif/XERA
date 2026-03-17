@@ -116,12 +116,6 @@ function setupPaymentForm(user, planId, billingCycle) {
     inputCycle.value = billingCycle;
     inputUserId.value = user.id;
 
-    supabase.auth.getSession().then(({ data }) => {
-        if (data?.session?.access_token) {
-            inputAccessToken.value = data.session.access_token;
-        }
-    }).catch(() => {});
-
     const apiBase = resolveApiBase();
     form.action = `${apiBase}/api/maishapay/checkout`;
 

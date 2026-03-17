@@ -255,11 +255,11 @@ async function activateSubscription({
     const badgeForPlan =
         normalizedPlan === "pro" ? "verified_gold" : "verified";
 
-    if (paymentId) {
+    if (transactionRefId) {
         const { data: existing } = await supabase
             .from("transactions")
             .select("id")
-            .eq("payapay_payment_id", paymentId)
+            .eq("metadata->>transaction_ref_id", String(transactionRefId))
             .maybeSingle();
         if (existing?.id) {
             return;
@@ -299,7 +299,6 @@ async function activateSubscription({
         status: "active",
         current_period_start: now.toISOString(),
         current_period_end: periodEnd.toISOString(),
-        payapay_subscription_id: paymentId,
     });
 
     await supabase
@@ -320,10 +319,12 @@ async function activateSubscription({
         amount_net_creator: 0,
         amount_commission_xera: 0,
         currency,
-        payapay_payment_id: paymentId,
         status: "succeeded",
         description: `Abonnement ${plan} (${billingCycle})`,
         metadata: {
+            payment_provider: "maishapay",
+            payment_ref: paymentId,
+            transaction_ref_id: transactionRefId || null,
             method,
             provider,
             wallet_id: walletId,

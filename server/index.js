@@ -167,19 +167,19 @@ app.get('/api/health', (_req, res) => {
     push: supportsPush() ? 'enabled' : 'disabled',
     reminderHours: REMINDER_HOURS,
     reminderWindowMinutes: REMINDER_WINDOW_MIN,
-    message: 'PayPal removed, ready to add Stripe later.'
+    message: 'Payments are currently disabled.'
   });
 });
 
 // Simple user upsert to keep Supabase usable while payments are disabled
 app.post('/api/users/upsert', async (req, res) => {
   try {
-    const { id, email, paypalEmail } = req.body;
+    const { id, email } = req.body;
     if (!id) return res.status(400).json({ error: 'Missing user id' });
 
     const { error } = await supabase
       .from('users')
-      .upsert({ id, email: email || null, paypal_email: paypalEmail || null });
+      .upsert({ id, email: email || null });
 
     if (error) throw new Error(error.message);
     res.json({ ok: true });
