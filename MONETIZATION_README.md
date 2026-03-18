@@ -97,7 +97,7 @@ MAISHAPAY_PUBLIC_KEY=your_public_key
 MAISHAPAY_SECRET_KEY=your_secret_key
 MAISHAPAY_CALLBACK_SECRET=your_callback_secret
 # Optionnel en local: 0 pour désactiver le sweep d'expiration des abonnements
-SUBSCRIPTION_SWEEP_MS=600000
+SUBSCRIPTION_SWEEP_MS=0
 ```
 
 ## Notes d'implémentation

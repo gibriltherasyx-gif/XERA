@@ -17,11 +17,16 @@ const {
     PUSH_CONTACT_EMAIL = "mailto:notifications@xera.app",
     RETURN_REMINDER_HOURS = "10,18",
     RETURN_REMINDER_WINDOW_MINUTES = "15",
-    RETURN_REMINDER_SWEEP_MS = "60000",
+    RETURN_REMINDER_SWEEP_MS = "600000",
     USD_TO_CDF_RATE = "2300",
     CALLBACK_BASE_URL = "https://xxxxx.loca.lt",
-    MAISHAPAY_PUBLIC_KEY = "MP-SBPK-cl4eApp$yQ$WLHKqKL211fVAOgL1SqkRzQ0QW712KOylxrMRm2IFUmI6ypxpGfLYm0YA2$QXYym0RNhmzaiDd6e1Po6$.Em9E$0Qm.Yye$E242x10Q2/JoN7",
-    MAISHAPAY_SECRET_KEY = "MP-SBSK-orLYwbv0GsBcTA7AKxxVoV8efPm28nAONyy1$Hffk0Nm264Nv3E$SM7WHRiJH0yI1qe23Gk$OL9RBAKvWd38$WLWdsrcSSkum1ebVubt50OrU/P$$Qud28Wp",
+
+    MAISHAPAY_PUBLIC_KEY = "MP-LIVEPK-Gl4b.T27YY9$ydZA$1uQq0jVo1D8lRhPJ7Vw0Z5vssuO1NU3n$$0OPOdzPf52qU01u3s0dS9VK2FB7z8IbqkbYO1r6PZblygvafZFQFyMOG$JBDq$zTfy/3C",
+
+
+    MAISHAPAY_SECRET_KEY = "MP-LIVESK-4PWp0AU4S0sfMqQ$E1Qpkl1jcq$zxCD3wy7jNYbGFCodo8qyX$vk$gU$quKhJrwtMwXuq363rvWAcNfeU6Z2GYLB5lNrvR4GNo/$NB10Kt/1oMyKQAAOJ2sY",
+
+
     MAISHAPAY_GATEWAY_MODE = "1",
     MAISHAPAY_CHECKOUT_URL = "https://marchand.maishapay.online/payment/vers1.0/merchant/checkout",
     MAISHAPAY_CALLBACK_SECRET = "31aca49d0e1d9deeb8857a01eab9c38014508ad216b587ee9662823f6cd9a633",
@@ -72,10 +77,7 @@ const REMINDER_SWEEP_MS = Math.max(
     parseInt(RETURN_REMINDER_SWEEP_MS, 10) || 60000,
 );
 let reminderSweepInFlight = false;
-const rawSubscriptionSweepMs = parseInt(
-    process.env.SUBSCRIPTION_SWEEP_MS,
-    10,
-);
+const rawSubscriptionSweepMs = parseInt(process.env.SUBSCRIPTION_SWEEP_MS, 10);
 const SUBSCRIPTION_SWEEP_MS = Number.isFinite(rawSubscriptionSweepMs)
     ? Math.max(0, rawSubscriptionSweepMs)
     : 10 * 60 * 1000;
@@ -111,7 +113,8 @@ function computeMaishaPayAmount(plan, billingCycle, currency) {
     if (String(currency).toUpperCase() === "CDF") {
         return Math.round(amountUsd * USD_TO_CDF_RATE_VALUE);
     }
-    return amountUsd;
+    // MaishaPay: on affiche les prix décimaux côté UI, mais on facture un entier.
+    return Math.ceil(amountUsd);
 }
 
 function inferMaishaPayKeyMode(value) {
@@ -484,7 +487,7 @@ app.post("/api/maishapay/checkout", async (req, res) => {
             return res.status(500).send("Callback secret manquant");
         }
 
-        const callbackUrl = `${CALLBACK_ORIGIN}/api/maishapay/callback?state=${encodeURIComponent(state)}`;
+        const callbackUrl = `${CALLBACK_ORIGIN}/api/maishapay/callback/${encodeURIComponent(state)}`;
 
         console.info("[MaishaPay checkout]", {
             gatewayMode: String(MAISHAPAY_GATEWAY_MODE),
@@ -528,7 +531,7 @@ app.post("/api/maishapay/checkout", async (req, res) => {
     }
 });
 
-app.all("/api/maishapay/callback", async (req, res) => {
+app.all("/api/maishapay/callback/:state?", async (req, res) => {
     try {
         const params = { ...req.query, ...req.body };
         const status = params.status ?? params.statusCode ?? "";
@@ -536,7 +539,7 @@ app.all("/api/maishapay/callback", async (req, res) => {
         const transactionRefId =
             params.transactionRefId || params.transaction_ref_id;
         const operatorRefId = params.operatorRefId || params.operator_ref_id;
-        const state = params.state;
+        const state = params.state || req.params.state;
 
         const payload = verifySignedState(state);
         if (!payload) {
