@@ -89,11 +89,25 @@ function applyBillingCycle(cycle) {
     });
 }
 
+function resolveNavAvatarUrl(avatarUrl) {
+    const value = String(avatarUrl || '').trim();
+    if (!value) return '';
+    if (!/^https?:/i.test(value)) return value;
+    try {
+        const url = new URL(value, window.location.origin);
+        url.searchParams.set('v', Date.now().toString());
+        return url.toString();
+    } catch (error) {
+        return value;
+    }
+}
+
 // Mettre à jour l'avatar dans la navigation
 function updateNavAvatar(avatarUrl) {
     const navAvatar = document.getElementById('navAvatar');
-    if (navAvatar && avatarUrl) {
-        navAvatar.src = avatarUrl;
+    const resolvedAvatar = resolveNavAvatarUrl(avatarUrl);
+    if (navAvatar && resolvedAvatar) {
+        navAvatar.src = resolvedAvatar;
     }
 }
 

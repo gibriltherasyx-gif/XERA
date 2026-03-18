@@ -83,17 +83,29 @@ function generateSupportButtonHTML(user, context = 'profile') {
 
     const buttonClass = `support-btn support-btn-active support-btn-profile ${size}`;
     const labelHtml = '<span class="support-btn-label">Soutenir</span>';
+    const creatorId = String(user.id || '');
+    const creatorName = escapeSupportHtmlAttr(user.name || 'Créateur');
+    const supportContext = escapeSupportHtmlAttr(context || 'profile');
 
     return `
         <button class="${buttonClass}" 
-                onclick="event.preventDefault(); event.stopPropagation(); openSupportModal('${user.id}', '${user.name || 'Créateur'}')"
-                data-creator-id="${user.id}"
+                data-creator-id="${creatorId}"
+                data-creator-name="${creatorName}"
+                data-support-context="${supportContext}"
                 title="Soutenir ce créateur"
                 aria-label="Soutenir ce créateur">
             <img src="icons/soutien.svg" alt="" class="support-icon-img">
             ${labelHtml}
         </button>
     `;
+}
+
+function escapeSupportHtmlAttr(value) {
+    return String(value ?? '')
+        .replace(/&/g, '&amp;')
+        .replace(/"/g, '&quot;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;');
 }
 
 // Générer une modale de soutien
@@ -123,7 +135,7 @@ function createSupportModal() {
                 </div>
                 <div class="custom-amount">
                     <label>Montant personnalisé ($)</label>
-                    <input type="number" id="global-custom-amount" min="1" max="1000" step="0.50" placeholder="Entrez un montant" oninput="handleGlobalCustomAmount()">
+                    <input type="number" id="global-custom-amount" min="1" max="1000" step="1" placeholder="Entrez un montant" oninput="handleGlobalCustomAmount()">
                 </div>
                 <div class="support-summary">
                     <div class="summary-row">
@@ -152,17 +164,22 @@ function createSupportModal() {
 let globalSupportState = {
     creatorId: null,
     creatorName: '',
-    amount: 0
+    amount: 0,
+    returnPath: '',
 };
 
 // Ouvrir la modale de soutien globale
-function openSupportModal(creatorId, creatorName) {
+function openSupportModal(creatorId, creatorName, sourceElement = null) {
     createSupportModal();
     
     globalSupportState = {
         creatorId,
         creatorName,
-        amount: 0
+        amount: 0,
+        returnPath:
+            typeof buildSupportReturnPath === 'function'
+                ? buildSupportReturnPath(sourceElement)
+                : `${window.location.pathname}${window.location.search}${window.location.hash}`,
     };
     
     document.getElementById('support-creator-name').textContent = creatorName;
@@ -230,7 +247,7 @@ function updateGlobalSupportSummary() {
     
     // Activer/désactiver le bouton
     const submitBtn = document.getElementById('global-support-submit');
-    if (amount >= 1 && amount <= 1000) {
+    if (Number.isInteger(amount) && amount >= 1 && amount <= 1000) {
         submitBtn.disabled = false;
     } else {
         submitBtn.disabled = true;
@@ -261,16 +278,16 @@ async function processGlobalSupport() {
             submitBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Envoi...';
         }
 
-        const result = await createSupportPaymentSession(
-            currentUser.id,
+        const result = redirectToSupportCheckout({
             creatorId,
+            creatorName: globalSupportState.creatorName,
             amount,
-            'Soutien depuis le profil'
-        );
+            description: 'Soutien depuis le profil',
+            returnPath: globalSupportState.returnPath,
+        });
 
         if (result.success) {
             closeGlobalSupportModal();
-            showGlobalNotification('Soutien envoyé avec succès', 'success');
         } else {
             showGlobalNotification(result.error || 'Erreur lors du traitement', 'error');
         }
@@ -280,7 +297,11 @@ async function processGlobalSupport() {
     } finally {
         const submitBtn = document.getElementById('global-support-submit');
         if (submitBtn) {
-            submitBtn.disabled = !(amount >= 1 && amount <= 1000);
+            submitBtn.disabled = !(
+                Number.isInteger(amount) &&
+                amount >= 1 &&
+                amount <= 1000
+            );
             submitBtn.innerHTML = '<i class="fas fa-heart"></i> Envoyer le soutien';
         }
     }
@@ -342,7 +363,7 @@ document.addEventListener('click', (e) => {
         if (creatorId) {
             e.preventDefault();
             e.stopPropagation();
-            openSupportModal(creatorId, creatorName);
+            openSupportModal(creatorId, creatorName, supportBtn);
         }
     }
 });

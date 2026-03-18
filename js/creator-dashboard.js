@@ -279,9 +279,43 @@ function subscribeDashboardRealtime(userId) {
         )
         .subscribe();
 
+    const withdrawalsChannel = supabase
+        .channel(`creator-dashboard-withdrawals-${userId}`)
+        .on(
+            'postgres_changes',
+            {
+                event: '*',
+                schema: 'public',
+                table: 'withdrawal_requests',
+                filter: `creator_id=eq.${userId}`,
+            },
+            () => {
+                scheduleDashboardRealtimeRefresh(userId);
+            },
+        )
+        .subscribe();
+
+    const payoutSettingsChannel = supabase
+        .channel(`creator-dashboard-payout-settings-${userId}`)
+        .on(
+            'postgres_changes',
+            {
+                event: '*',
+                schema: 'public',
+                table: 'creator_payout_settings',
+                filter: `user_id=eq.${userId}`,
+            },
+            () => {
+                scheduleDashboardRealtimeRefresh(userId);
+            },
+        )
+        .subscribe();
+
     window.creatorDashboardRealtimeChannels = [
         transactionsChannel,
         notificationsChannel,
+        withdrawalsChannel,
+        payoutSettingsChannel,
     ];
 }
 
@@ -846,10 +880,21 @@ async function initDashboard() {
 
 // Mettre à jour l'avatar dans la navigation
 function updateNavAvatar(avatarUrl) {
-    const navAvatar = document.getElementById('nav-profile-avatar');
-    if (navAvatar && avatarUrl) {
-        navAvatar.src = avatarUrl;
+    if (!avatarUrl) return;
+    if (typeof window.setNavProfileAvatar === 'function') {
+        window.setNavProfileAvatar(
+            avatarUrl,
+            window.currentUser?.id || window.currentUserId || null,
+        );
+        return;
     }
+    const navAvatar =
+        document.getElementById('nav-profile-avatar') ||
+        document.getElementById('navAvatar');
+    if (!navAvatar) return;
+    const resolvedAvatar = String(avatarUrl).trim();
+    if (!resolvedAvatar) return;
+    navAvatar.src = resolvedAvatar;
 }
 
 // Mettre à jour le bouton d'upgrade
@@ -1045,16 +1090,33 @@ async function loadRevenueData(userId, period = 'all') {
 // Charger les statistiques vidéo
 async function loadVideoStats(userId) {
     try {
-        const videoSection = document.getElementById('videoStatsSection');
-        if (videoSection) {
-            videoSection.style.display = 'block';
-        }
-        
-        const { data: stats, error } = await getCreatorVideoStats(userId, 'month');
-        
-        if (error) {
-            console.error('Erreur stats vidéo:', error);
-            return;
+    const videoSection = document.getElementById('videoStatsSection');
+    if (videoSection) {
+        videoSection.style.display = 'block';
+    }
+    
+    const createBtn = document.getElementById('createVideoBtn');
+    if (createBtn) {
+        createBtn.onclick = (e) => {
+            e.preventDefault();
+            const uid = window.currentUserId || window.currentUser?.id || profile?.id || userId;
+            if (!uid) {
+                console.warn('Impossible de déterminer l’utilisateur courant pour créer une trace.');
+                return;
+            }
+            if (typeof window.openCreateMenu === 'function') {
+                window.openCreateMenu(uid);
+            } else {
+                window.location.href = 'profile.html';
+            }
+        };
+    }
+
+    const { data: stats, error } = await getCreatorVideoStats(userId, 'month');
+    
+    if (error) {
+        console.error('Erreur stats vidéo:', error);
+        return;
         }
         
         if (stats) {
@@ -1329,21 +1391,24 @@ async function processSupport() {
             return;
         }
 
+        if (!Number.isInteger(amount)) {
+            showError('Choisissez un montant entier en USD.');
+            return;
+        }
+
         if (submitBtn) {
             submitBtn.disabled = true;
             submitBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Envoi...';
         }
 
-        const result = await createSupportPaymentSession(
-            window.currentUser.id,
-            selectedCreatorId,
+        const result = redirectToSupportCheckout({
+            creatorId: selectedCreatorId,
             amount,
-            'Soutien depuis le dashboard'
-        );
+            description: 'Soutien depuis le dashboard',
+        });
 
         if (result.success) {
             closeSupportModal();
-            showSuccess('Soutien envoyé avec succès');
         } else {
             showError(result.error || 'Erreur lors de la création du paiement');
         }

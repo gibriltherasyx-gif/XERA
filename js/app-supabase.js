@@ -92,6 +92,63 @@ function buildProfileShareUrl(userId) {
     }
 }
 
+const APP_PAYMENT_RETURN_VIEW_PARAM = "payment_return_view";
+const APP_PAYMENT_RETURN_IMMERSIVE_USER_PARAM = "payment_return_immersive_user";
+const APP_PAYMENT_RETURN_IMMERSIVE_CONTENT_PARAM =
+    "payment_return_immersive_content";
+
+function getPaymentReturnResumeState() {
+    try {
+        const url = new URL(window.location.href);
+        const view = String(
+            url.searchParams.get(APP_PAYMENT_RETURN_VIEW_PARAM) || "",
+        ).trim();
+        if (view !== "immersive") return null;
+
+        const userId = String(
+            url.searchParams.get(APP_PAYMENT_RETURN_IMMERSIVE_USER_PARAM) || "",
+        ).trim();
+        const contentId = String(
+            url.searchParams.get(APP_PAYMENT_RETURN_IMMERSIVE_CONTENT_PARAM) || "",
+        ).trim();
+
+        if (!userId) return null;
+        return {
+            view,
+            userId,
+            contentId: contentId || null,
+        };
+    } catch (error) {
+        return null;
+    }
+}
+
+function clearPaymentReturnResumeState() {
+    try {
+        const url = new URL(window.location.href);
+        url.searchParams.delete(APP_PAYMENT_RETURN_VIEW_PARAM);
+        url.searchParams.delete(APP_PAYMENT_RETURN_IMMERSIVE_USER_PARAM);
+        url.searchParams.delete(APP_PAYMENT_RETURN_IMMERSIVE_CONTENT_PARAM);
+        window.history.replaceState({}, document.title, url.toString());
+    } catch (error) {
+        // ignore URL cleanup errors
+    }
+}
+
+async function maybeResumePaymentReturnContext() {
+    const resumeState = getPaymentReturnResumeState();
+    if (!resumeState) return;
+
+    clearPaymentReturnResumeState();
+
+    if (
+        resumeState.view === "immersive" &&
+        typeof openImmersive === "function"
+    ) {
+        await openImmersive(resumeState.userId, resumeState.contentId);
+    }
+}
+
 async function shareProfileLink(userId) {
     if (!userId) return;
     const user = getUser(userId);
@@ -896,6 +953,7 @@ async function initializeApp() {
             await renderProfileIntoContainer(window.currentUserId);
         }
 
+        await maybeResumePaymentReturnContext();
         handleLoginPromptContext();
         await maybeStartFirstPostFlow();
         if (typeof initializeMessaging === "function" && window.currentUserId) {
@@ -913,28 +971,74 @@ async function initializeApp() {
 }
 
 // Mettre à jour la navigation selon l'état de connexion
+let navAvatarRefreshPromise = null;
+
 function setNavProfileAvatar(rawAvatar, userId = null) {
-    if (!rawAvatar) return;
-    const navProfile = document.getElementById("nav-profile");
-    if (!navProfile) return;
-    const navAvatar = navProfile.querySelector(".profile-nav-avatar");
+    const navAvatar =
+        document.getElementById("nav-profile-avatar") ||
+        document.getElementById("navAvatar") ||
+        document.querySelector("#nav-profile .profile-nav-avatar") ||
+        document.querySelector("nav .profile-nav-avatar");
     if (!navAvatar) return;
     const resolvedUserId =
         userId || window.currentUser?.id || window.currentUserId || null;
-    const user = resolvedUserId ? getUser(resolvedUserId) : null;
-    const avatarSource = user && user.avatar ? user.avatar : rawAvatar;
-    const avatarValue = String(avatarSource);
-    if (user && isGifUrl(avatarValue) && !hasActivePaidPlan(user)) {
+    const cachedUser = resolvedUserId ? getUser(resolvedUserId) : null;
+    const explicitAvatar =
+        rawAvatar && String(rawAvatar).trim() ? String(rawAvatar).trim() : "";
+    const cachedAvatar =
+        cachedUser?.avatar ||
+        window.currentUser?.avatar ||
+        window.currentUser?.user_metadata?.avatar_url ||
+        window.currentUser?.user_metadata?.avatar ||
+        "";
+    const avatarValue = explicitAvatar || String(cachedAvatar || "").trim();
+    if (!avatarValue) return;
+    const avatarUser =
+        cachedUser && explicitAvatar
+            ? { ...cachedUser, avatar: explicitAvatar }
+            : cachedUser;
+    if (avatarUser && isGifUrl(avatarValue) && !hasActivePaidPlan(avatarUser)) {
         const snapshot = getGifSnapshot(avatarValue);
         if (snapshot) {
             navAvatar.src = snapshot;
             return;
         }
-        queueGifSnapshot(user.id, "avatar", avatarValue);
+        queueGifSnapshot(avatarUser.id, "avatar", avatarValue);
     }
     navAvatar.src = avatarValue.startsWith("http")
         ? withCacheBust(avatarValue)
         : avatarValue;
+}
+
+window.setNavProfileAvatar = setNavProfileAvatar;
+
+async function refreshCurrentUserNavAvatar(force = false) {
+    const userId = window.currentUser?.id || window.currentUserId || null;
+    if (!userId || typeof getUserProfile !== "function") return null;
+    if (navAvatarRefreshPromise && !force) return navAvatarRefreshPromise;
+
+    navAvatarRefreshPromise = (async () => {
+        try {
+            const result = await getUserProfile(userId);
+            if (!result?.success || !result.data) return null;
+            const sanitized = sanitizeUserMedia(result.data);
+            const mergedUser =
+                typeof applyUserUpdateToCache === "function"
+                    ? applyUserUpdateToCache(sanitized)
+                    : sanitized;
+            if (mergedUser?.avatar) {
+                setNavProfileAvatar(mergedUser.avatar, mergedUser.id || userId);
+            }
+            return mergedUser;
+        } catch (error) {
+            console.warn("Unable to refresh nav avatar:", error);
+            return null;
+        } finally {
+            navAvatarRefreshPromise = null;
+        }
+    })();
+
+    return navAvatarRefreshPromise;
 }
 
 function updateNavigation(isLoggedIn) {
@@ -959,18 +1063,22 @@ function updateNavigation(isLoggedIn) {
             navProfile.style.display = navProfile.classList.contains("notification-button")
                 ? "flex"
                 : "block";
+            const cachedUser =
+                getUser(window.currentUser?.id || window.currentUserId || null) ||
+                null;
             const directAvatar =
+                cachedUser?.avatar ||
                 window.currentUser?.avatar ||
                 window.currentUser?.user_metadata?.avatar_url ||
                 window.currentUser?.user_metadata?.avatar;
             if (directAvatar) {
-                setNavProfileAvatar(directAvatar, window.currentUser?.id);
-            } else if (window.currentUser?.id && typeof getUserProfile === "function") {
-                getUserProfile(window.currentUser.id).then((res) => {
-                    if (res?.success && res.data?.avatar) {
-                        setNavProfileAvatar(res.data.avatar, res.data.id || window.currentUser?.id);
-                    }
-                });
+                setNavProfileAvatar(
+                    directAvatar,
+                    cachedUser?.id || window.currentUser?.id,
+                );
+                refreshCurrentUserNavAvatar(false);
+            } else if (window.currentUser?.id) {
+                refreshCurrentUserNavAvatar(true);
             }
         }
     }
@@ -1813,10 +1921,14 @@ async function loadAllData() {
         if (window.currentUser) {
             const ensuredProfile = await ensureUserProfile(window.currentUser);
             const safeProfile = sanitizeUserMedia(ensuredProfile);
-            if (safeProfile?.avatar) {
+            const mergedProfile =
+                safeProfile && typeof applyUserUpdateToCache === "function"
+                    ? applyUserUpdateToCache(safeProfile)
+                    : safeProfile;
+            if (mergedProfile?.avatar) {
                 setNavProfileAvatar(
-                    safeProfile.avatar,
-                    safeProfile.id || window.currentUser.id,
+                    mergedProfile.avatar,
+                    mergedProfile.id || window.currentUser.id,
                 );
             }
         }

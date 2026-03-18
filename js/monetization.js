@@ -498,9 +498,10 @@ async function recordVideoView(videoId, creatorId, videoDuration) {
 // Récupérer les statistiques vidéo d'un créateur
 async function getCreatorVideoStats(creatorId, period = 'month') {
     try {
-        let startDate;
+        // On se base sur les contenus vidéo réels de l'utilisateur (table content)
+        // car les vues ne sont pas encore enregistrées dans video_views.
         const now = new Date();
-        
+        let startDate = null;
         switch (period) {
             case 'day':
                 startDate = new Date(now.getFullYear(), now.getMonth(), now.getDate());
@@ -514,51 +515,44 @@ async function getCreatorVideoStats(creatorId, period = 'month') {
             default:
                 startDate = null;
         }
-        
+
         let query = supabase
-            .from('video_views')
-            .select('video_id, view_count, eligible, video_duration, period_date')
-            .eq('creator_id', creatorId);
-        
+            .from('content')
+            .select('id, views, created_at, type')
+            .eq('user_id', creatorId)
+            .eq('type', 'video');
+
         if (startDate) {
-            query = query.gte('period_date', startDate.toISOString().split('T')[0]);
+            query = query.gte('created_at', startDate.toISOString());
         }
-        
+
         const { data, error } = await query;
-        
         if (error) {
             console.error('Erreur stats vidéo:', error);
             return { success: false, error: error.message };
         }
-        
+
         const stats = {
             totalViews: 0,
             totalEligibleViews: 0,
             videoCount: 0,
             estimatedRevenue: 0
         };
-        
-        if (data) {
-            const uniqueEligibleVideos = new Set();
-            data.forEach(view => {
-                const viewCount = Number(view.view_count || 0);
-                const isEligible =
-                    view.eligible === true &&
-                    isEligibleVideoDuration(view.video_duration);
 
-                stats.totalViews += viewCount;
-                if (isEligible) {
-                    stats.totalEligibleViews += viewCount;
-                    uniqueEligibleVideos.add(view.video_id);
-                }
+        if (Array.isArray(data) && data.length > 0) {
+            data.forEach((row) => {
+                const views = Number(row.views || 0);
+                stats.totalViews += views;
+                stats.totalEligibleViews += views; // faute de durée, on considère toutes les vues éligibles
             });
-            stats.videoCount = uniqueEligibleVideos.size;
-            stats.estimatedRevenue =
-                (stats.totalEligibleViews / 1000) *
-                PLANS.PRO.rpmRate *
-                (1 - PAYMENT_RULES.commissionRate);
+            stats.videoCount = data.length;
         }
-        
+
+        stats.estimatedRevenue =
+            (stats.totalEligibleViews / 1000) *
+            PLANS.PRO.rpmRate *
+            (1 - PAYMENT_RULES.commissionRate);
+
         return { success: true, data: stats };
     } catch (error) {
         console.error('Exception stats vidéo:', error);
@@ -697,6 +691,151 @@ async function createSupportPaymentSession(fromUserId, toUserId, amount, descrip
     }
 }
 
+const PAYMENT_RETURN_VIEW_PARAM = 'payment_return_view';
+const PAYMENT_RETURN_IMMERSIVE_USER_PARAM = 'payment_return_immersive_user';
+const PAYMENT_RETURN_IMMERSIVE_CONTENT_PARAM = 'payment_return_immersive_content';
+
+function clearPaymentReturnResumeParams(url) {
+    if (!(url instanceof URL)) return url;
+    url.searchParams.delete(PAYMENT_RETURN_VIEW_PARAM);
+    url.searchParams.delete(PAYMENT_RETURN_IMMERSIVE_USER_PARAM);
+    url.searchParams.delete(PAYMENT_RETURN_IMMERSIVE_CONTENT_PARAM);
+    return url;
+}
+
+function isImmersiveOverlayVisible() {
+    const overlay = document.getElementById('immersive-overlay');
+    if (!overlay) return false;
+    return overlay.style.display === 'block' || overlay.classList.contains('active');
+}
+
+function resolveActiveImmersivePost(sourceElement = null) {
+    if (sourceElement?.closest) {
+        const directPost = sourceElement.closest('.immersive-post');
+        if (directPost) return directPost;
+    }
+
+    const posts = Array.from(document.querySelectorAll('.immersive-post'));
+    if (posts.length === 0) return null;
+
+    let bestPost = null;
+    let bestScore = -1;
+    posts.forEach((post) => {
+        const rect = post.getBoundingClientRect();
+        const visibleHeight =
+            Math.min(rect.bottom, window.innerHeight) - Math.max(rect.top, 0);
+        const visibleWidth =
+            Math.min(rect.right, window.innerWidth) - Math.max(rect.left, 0);
+        const score = Math.max(0, visibleHeight) * Math.max(0, visibleWidth);
+        if (score > bestScore) {
+            bestScore = score;
+            bestPost = post;
+        }
+    });
+
+    return bestPost;
+}
+
+function buildSupportReturnPath(sourceElement = null) {
+    const url = new URL(window.location.href);
+    clearPaymentReturnResumeParams(url);
+
+    if (isImmersiveOverlayVisible()) {
+        const activePost = resolveActiveImmersivePost(sourceElement);
+        const immersiveUserId = String(activePost?.dataset?.userId || '').trim();
+        const immersiveContentId = String(activePost?.dataset?.contentId || '').trim();
+
+        if (immersiveUserId) {
+            url.searchParams.set(PAYMENT_RETURN_VIEW_PARAM, 'immersive');
+            url.searchParams.set(
+                PAYMENT_RETURN_IMMERSIVE_USER_PARAM,
+                immersiveUserId,
+            );
+            if (immersiveContentId) {
+                url.searchParams.set(
+                    PAYMENT_RETURN_IMMERSIVE_CONTENT_PARAM,
+                    immersiveContentId,
+                );
+            }
+        }
+    }
+
+    return `${url.pathname}${url.search}${url.hash}`;
+}
+
+function buildSupportPaymentPageUrl({
+    creatorId,
+    creatorName = '',
+    amount,
+    description = '',
+    returnPath = '',
+}) {
+    const normalizedAmount = Number.parseInt(String(amount), 10);
+    const query = {
+        kind: 'support',
+        creator: creatorId,
+        amount: normalizedAmount,
+        creator_name: String(creatorName || '').trim(),
+        description: String(description || '').trim().slice(0, 160),
+        return_path: String(returnPath || '').trim(),
+    };
+
+    if (window.XeraRouter?.buildHtmlUrl) {
+        return window.XeraRouter.buildHtmlUrl('subscriptionPayment', { query });
+    }
+
+    const url = new URL('subscription-payment.html', window.location.href);
+    Object.entries(query).forEach(([key, value]) => {
+        if (value === null || value === undefined || value === '') return;
+        url.searchParams.set(key, String(value));
+    });
+    return url.toString();
+}
+
+function redirectToSupportCheckout({
+    creatorId,
+    creatorName = '',
+    amount,
+    description = '',
+    returnPath = '',
+    sourceElement = null,
+}) {
+    const normalizedAmount = Number.parseFloat(amount);
+
+    if (!creatorId) {
+        return { success: false, error: 'Créateur introuvable.' };
+    }
+    if (!Number.isFinite(normalizedAmount)) {
+        return { success: false, error: 'Montant invalide.' };
+    }
+    if (!Number.isInteger(normalizedAmount)) {
+        return {
+            success: false,
+            error: 'Choisissez un montant entier en USD pour le soutien.',
+        };
+    }
+    if (
+        normalizedAmount < PAYMENT_RULES.minTipAmount ||
+        normalizedAmount > PAYMENT_RULES.maxTipAmount
+    ) {
+        return {
+            success: false,
+            error: `Le montant doit être entre ${PAYMENT_RULES.minTipAmount} et ${PAYMENT_RULES.maxTipAmount} USD.`,
+        };
+    }
+
+    const destination = buildSupportPaymentPageUrl({
+        creatorId,
+        creatorName,
+        amount: normalizedAmount,
+        description,
+        returnPath: returnPath || buildSupportReturnPath(sourceElement),
+    });
+
+    window.location.assign(destination);
+    return { success: true, url: destination };
+}
+
 /* ========================================
    FONCTIONS UI - RENDU DES ÉLÉMENTS
    ======================================== */
@@ -781,6 +920,9 @@ if (typeof module !== 'undefined' && module.exports) {
         getCreatorVideoStats,
         getCreatorVideoPayouts,
         createSupportPaymentSession,
+        buildSupportReturnPath,
+        buildSupportPaymentPageUrl,
+        redirectToSupportCheckout,
         renderPlanBadge,
         renderSupportButton,
         renderSupportAmounts

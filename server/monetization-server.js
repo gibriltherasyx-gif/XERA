@@ -19,8 +19,8 @@ const {
     RETURN_REMINDER_WINDOW_MINUTES = "15",
     RETURN_REMINDER_SWEEP_MS = "600000",
     USD_TO_CDF_RATE = "2300",
-    CALLBACK_BASE_URL = "https://xxxxx.loca.lt",
-    MAISHAPAY_USE_CALLBACK = "0",
+    CALLBACK_BASE_URL = "",
+    MAISHAPAY_USE_CALLBACK = "1",
 
     MAISHAPAY_PUBLIC_KEY = "MP-LIVEPK-Gl4b.T27YY9$ydZA$1uQq0jVo1D8lRhPJ7Vw0Z5vssuO1NU3n$$0OPOdzPf52qU01u3s0dS9VK2FB7z8IbqkbYO1r6PZblygvafZFQFyMOG$JBDq$zTfy/3C",
 
@@ -85,6 +85,24 @@ function hasPublicCallbackBaseUrl(value) {
     }
 }
 
+function stripTrailingSlash(value) {
+    return String(value || "").trim().replace(/\/+$/, "");
+}
+
+function resolveCallbackOrigin(callbackBaseUrl, primaryOrigin) {
+    const explicitOrigin = stripTrailingSlash(callbackBaseUrl);
+    if (hasPublicCallbackBaseUrl(explicitOrigin)) {
+        return explicitOrigin;
+    }
+
+    const fallbackOrigin = stripTrailingSlash(primaryOrigin);
+    if (hasPublicCallbackBaseUrl(fallbackOrigin)) {
+        return fallbackOrigin;
+    }
+
+    return "";
+}
+
 function escapeHtmlAttr(value) {
     return String(value ?? "")
         .replace(/&/g, "&amp;")
@@ -93,13 +111,35 @@ function escapeHtmlAttr(value) {
         .replace(/>/g, "&gt;");
 }
 
-const PRIMARY_ORIGIN =
-    allowedOrigins[0] || APP_BASE_URL.split(",")[0] || "http://localhost:3000";
-const CALLBACK_ORIGIN =
-    String(CALLBACK_BASE_URL || "").trim() || PRIMARY_ORIGIN;
+const PRIMARY_ORIGIN = stripTrailingSlash(
+    allowedOrigins[0] || APP_BASE_URL.split(",")[0] || "http://localhost:3000",
+);
+const CALLBACK_ORIGIN = resolveCallbackOrigin(CALLBACK_BASE_URL, PRIMARY_ORIGIN);
 const MAISHAPAY_CALLBACK_ENABLED =
-    parseBooleanEnv(MAISHAPAY_USE_CALLBACK, false) &&
-    hasPublicCallbackBaseUrl(CALLBACK_ORIGIN);
+    parseBooleanEnv(MAISHAPAY_USE_CALLBACK, true) && Boolean(CALLBACK_ORIGIN);
+
+function buildProfileReturnPath(userId) {
+    if (!userId) return "/profile.html";
+    return `/profile.html?user=${encodeURIComponent(userId)}`;
+}
+
+function sanitizeReturnPath(value, fallbackPath = "/") {
+    const fallback = String(fallbackPath || "/").trim() || "/";
+    const raw = String(value || "").trim();
+    if (!raw) return fallback;
+
+    try {
+        const baseUrl = new URL(PRIMARY_ORIGIN || APP_BASE_URL || "http://localhost:3000");
+        const url = new URL(raw, baseUrl);
+        if (url.origin !== baseUrl.origin) {
+            return fallback;
+        }
+        return `${url.pathname}${url.search}${url.hash}`;
+    } catch (error) {
+        return fallback;
+    }
+}
+
 const REMINDER_HOURS = RETURN_REMINDER_HOURS.split(",")
     .map((value) => parseInt(value.trim(), 10))
     .filter((hour) => Number.isFinite(hour) && hour >= 0 && hour <= 23)
@@ -174,6 +214,23 @@ function computeMaishaPayAmount(plan, billingCycle, currency) {
     }
     // MaishaPay: on affiche les prix décimaux côté UI, mais on facture un entier.
     return Math.ceil(amountUsd);
+}
+
+function computeSupportCheckoutAmount(amountUsd, currency) {
+    const normalizedAmount = roundMoney(amountUsd);
+    if (
+        !Number.isFinite(normalizedAmount) ||
+        normalizedAmount < SUPPORT_MIN_USD ||
+        normalizedAmount > SUPPORT_MAX_USD
+    ) {
+        return null;
+    }
+
+    if (String(currency).toUpperCase() === "CDF") {
+        return Math.max(1, Math.round(normalizedAmount * USD_TO_CDF_RATE_VALUE));
+    }
+
+    return Math.ceil(normalizedAmount);
 }
 
 function inferMaishaPayKeyMode(value) {
@@ -297,6 +354,99 @@ async function createPendingSubscriptionPayment({
     };
 }
 
+async function createPendingSupportPayment({
+    fromUserId,
+    toUserId,
+    amountUsd,
+    checkoutAmount,
+    checkoutCurrency,
+    method,
+    provider,
+    walletId,
+    description,
+    senderName,
+    recipientName,
+}) {
+    const checkoutRefId = crypto.randomUUID();
+    const nowIso = new Date().toISOString();
+    const metadata = {
+        payment_provider: "maishapay",
+        checkout_ref_id: checkoutRefId,
+        support_kind: "direct",
+        sender_name: senderName || "Utilisateur",
+        recipient_name: recipientName || "Créateur",
+        method: String(method || "card").toLowerCase(),
+        provider: provider || null,
+        wallet_id: walletId || null,
+        support_amount_usd: roundMoney(amountUsd),
+        checkout_amount: checkoutAmount,
+        checkout_currency: String(checkoutCurrency || "USD").toUpperCase(),
+        callback_enabled: MAISHAPAY_CALLBACK_ENABLED,
+        callback_origin: MAISHAPAY_CALLBACK_ENABLED ? CALLBACK_ORIGIN : null,
+        checkout_started_at: nowIso,
+    };
+
+    const { data, error } = await supabase
+        .from("transactions")
+        .insert({
+            from_user_id: fromUserId,
+            to_user_id: toUserId,
+            type: "support",
+            amount_gross: roundMoney(amountUsd),
+            currency: "USD",
+            status: "pending",
+            description:
+                description ||
+                `Soutien pour ${recipientName || "un créateur"} en attente`,
+            metadata,
+        })
+        .select("id, metadata, created_at")
+        .single();
+
+    if (error) {
+        throw error;
+    }
+
+    return {
+        id: data.id,
+        checkoutRefId,
+        createdAt: data.created_at,
+    };
+}
+
+function renderMaishaPayCheckoutPage({
+    amount,
+    currency,
+    callbackUrl,
+}) {
+    const callbackInput = callbackUrl
+        ? `\n          <input type="hidden" name="callbackUrl" value="${escapeHtmlAttr(callbackUrl)}">`
+        : "";
+
+    return `
+      <!doctype html>
+      <html lang="fr">
+      <head>
+        <meta charset="UTF-8">
+        <title>Redirection MaishaPay</title>
+      </head>
+      <body>
+        <p>Redirection vers MaishaPay...</p>
+        <form id="mpForm" action="${MAISHAPAY_CHECKOUT_URL}" method="POST">
+          <input type="hidden" name="gatewayMode" value="${escapeHtmlAttr(MAISHAPAY_GATEWAY_MODE)}">
+          <input type="hidden" name="publicApiKey" value="${escapeHtmlAttr(MAISHAPAY_PUBLIC_KEY)}">
+          <input type="hidden" name="secretApiKey" value="${escapeHtmlAttr(MAISHAPAY_SECRET_KEY)}">
+          <input type="hidden" name="montant" value="${escapeHtmlAttr(amount)}">
+          <input type="hidden" name="devise" value="${escapeHtmlAttr(currency)}">${callbackInput}
+        </form>
+        <script>
+          document.getElementById('mpForm').submit();
+        </script>
+      </body>
+      </html>
+    `;
+}
+
 async function authenticateRequest(req) {
     const auth = String(req.headers.authorization || "");
     const token = auth.startsWith("Bearer ") ? auth.slice(7) : "";
@@ -391,6 +541,26 @@ function isMissingRelationError(error) {
 
 function getWalletSchemaErrorMessage() {
     return "Schema portefeuille manquant. Executez sql/monetization-supabase-one-shot.sql ou sql/monetization-wallet.sql dans Supabase SQL Editor.";
+}
+
+function getReadableServerErrorMessage(error, fallbackMessage) {
+    const message = String(error?.message || "").trim();
+    if (!message) return fallbackMessage;
+    return message.slice(0, 280);
+}
+
+function sendCheckoutErrorResponse(res, error, fallbackMessage) {
+    if (isMissingRelationError(error) || isMissingColumnError(error)) {
+        return res.status(503).send(getWalletSchemaErrorMessage());
+    }
+
+    if (String(process.env.NODE_ENV || "").toLowerCase() !== "production") {
+        return res
+            .status(500)
+            .send(getReadableServerErrorMessage(error, fallbackMessage));
+    }
+
+    return res.status(500).send(fallbackMessage);
 }
 
 function extractPayoutSettings(row) {
@@ -1055,6 +1225,243 @@ async function sendPushToUser(userId, payload) {
     }
 }
 
+async function failPendingTransaction({
+    pendingTransactionId,
+    transactionRefId,
+    operatorRefId,
+    reason,
+    confirmationSource = "maishapay_callback",
+}) {
+    if (!pendingTransactionId) return null;
+
+    const { data: existing, error: existingError } = await supabase
+        .from("transactions")
+        .select("id, status, metadata")
+        .eq("id", pendingTransactionId)
+        .maybeSingle();
+    if (existingError) throw existingError;
+    if (!existing) return null;
+
+    const currentStatus = String(existing.status || "").toLowerCase();
+    if (currentStatus !== "pending") {
+        return existing;
+    }
+
+    const nowIso = new Date().toISOString();
+    const metadata = {
+        ...(existing.metadata && typeof existing.metadata === "object"
+            ? existing.metadata
+            : {}),
+        transaction_ref_id:
+            transactionRefId ||
+            existing.metadata?.transaction_ref_id ||
+            null,
+        operator_ref_id:
+            operatorRefId ||
+            existing.metadata?.operator_ref_id ||
+            null,
+        failure_reason: reason || null,
+        failed_at: nowIso,
+        confirmation_source: confirmationSource,
+    };
+
+    const { data, error } = await supabase
+        .from("transactions")
+        .update({
+            status: "failed",
+            metadata,
+            updated_at: nowIso,
+        })
+        .eq("id", pendingTransactionId)
+        .select("id, status, metadata")
+        .single();
+    if (error) throw error;
+
+    return data;
+}
+
+async function confirmSupportPayment({
+    fromUserId,
+    toUserId,
+    amountUsd,
+    checkoutCurrency,
+    checkoutAmount,
+    method,
+    provider,
+    walletId,
+    description,
+    pendingTransactionId,
+    transactionRefId,
+    operatorRefId,
+    confirmationSource = "maishapay_callback",
+}) {
+    const paymentId = transactionRefId ? `maishapay_${transactionRefId}` : null;
+
+    let pendingPayment = null;
+    if (pendingTransactionId) {
+        const { data, error } = await supabase
+            .from("transactions")
+            .select(
+                "id, from_user_id, to_user_id, type, amount_gross, currency, status, description, metadata",
+            )
+            .eq("id", pendingTransactionId)
+            .maybeSingle();
+        if (error) throw error;
+        if (!data) {
+            throw new Error("Paiement de soutien introuvable.");
+        }
+        if (String(data.type || "").toLowerCase() !== "support") {
+            throw new Error("Transaction de soutien invalide.");
+        }
+        if (String(data.status || "").toLowerCase() === "succeeded") {
+            return {
+                alreadyConfirmed: true,
+                transactionId: data.id,
+            };
+        }
+        if (String(data.status || "").toLowerCase() !== "pending") {
+            throw new Error("Ce soutien ne peut plus être confirmé.");
+        }
+        pendingPayment = data;
+    }
+
+    if (transactionRefId) {
+        const { data: existing, error: existingError } = await supabase
+            .from("transactions")
+            .select("id")
+            .eq("type", "support")
+            .eq("metadata->>transaction_ref_id", String(transactionRefId))
+            .eq("status", "succeeded")
+            .maybeSingle();
+        if (existingError) throw existingError;
+        if (existing?.id && existing.id !== pendingTransactionId) {
+            return {
+                alreadyConfirmed: true,
+                transactionId: existing.id,
+            };
+        }
+    }
+
+    const [senderResult, recipientResult] = await Promise.all([
+        supabase.from("users").select("id, name, avatar").eq("id", fromUserId).maybeSingle(),
+        supabase.from("users").select("id, name, avatar").eq("id", toUserId).maybeSingle(),
+    ]);
+    if (senderResult.error) throw senderResult.error;
+    if (recipientResult.error) throw recipientResult.error;
+
+    const senderProfile = senderResult.data || null;
+    const recipientProfile = recipientResult.data || null;
+    if (!recipientProfile) {
+        throw new Error("Createur introuvable.");
+    }
+
+    const supportAmountUsd = roundMoney(amountUsd);
+    const nowIso = new Date().toISOString();
+    const mergedMetadata = {
+        ...(pendingPayment?.metadata && typeof pendingPayment.metadata === "object"
+            ? pendingPayment.metadata
+            : {}),
+        payment_provider: "maishapay",
+        payment_ref: paymentId,
+        transaction_ref_id: transactionRefId || null,
+        operator_ref_id: operatorRefId || null,
+        method: String(method || pendingPayment?.metadata?.method || "card").toLowerCase(),
+        provider: provider || pendingPayment?.metadata?.provider || null,
+        wallet_id: walletId || pendingPayment?.metadata?.wallet_id || null,
+        support_kind: "direct",
+        sender_name:
+            senderProfile?.name ||
+            pendingPayment?.metadata?.sender_name ||
+            "Utilisateur",
+        recipient_name:
+            recipientProfile?.name ||
+            pendingPayment?.metadata?.recipient_name ||
+            "Createur",
+        support_amount_usd: supportAmountUsd,
+        checkout_amount:
+            checkoutAmount ||
+            pendingPayment?.metadata?.checkout_amount ||
+            supportAmountUsd,
+        checkout_currency:
+            String(
+                checkoutCurrency ||
+                    pendingPayment?.metadata?.checkout_currency ||
+                    "USD",
+            ).toUpperCase(),
+        confirmed_at: nowIso,
+        confirmation_source: confirmationSource,
+    };
+
+    let transactionId = pendingTransactionId || null;
+    if (pendingTransactionId) {
+        const { error: updateError } = await supabase
+            .from("transactions")
+            .update({
+                from_user_id: fromUserId,
+                to_user_id: toUserId,
+                amount_gross: supportAmountUsd,
+                currency: "USD",
+                status: "succeeded",
+                description:
+                    description ||
+                    pendingPayment?.description ||
+                    "Soutien XERA",
+                metadata: mergedMetadata,
+            })
+            .eq("id", pendingTransactionId);
+        if (updateError) throw updateError;
+    } else {
+        const { data, error } = await supabase
+            .from("transactions")
+            .insert({
+                from_user_id: fromUserId,
+                to_user_id: toUserId,
+                type: "support",
+                amount_gross: supportAmountUsd,
+                currency: "USD",
+                status: "succeeded",
+                description: description || "Soutien XERA",
+                metadata: mergedMetadata,
+            })
+            .select("id")
+            .single();
+        if (error) throw error;
+        transactionId = data.id;
+    }
+
+    const senderName =
+        senderProfile?.name ||
+        mergedMetadata.sender_name ||
+        "Un utilisateur";
+    const notification = await createNotificationRecord({
+        userId: toUserId,
+        type: "support",
+        message: `${senderName} vous a envoye ${formatMoneyUsd(supportAmountUsd)} de soutien.`,
+        link: `/creator-dashboard`,
+        actorId: fromUserId,
+        metadata: {
+            transaction_id: transactionId,
+            amount_gross: supportAmountUsd,
+            currency: "USD",
+            sender_id: fromUserId,
+        },
+    });
+
+    if (notification) {
+        await sendPushToUser(
+            toUserId,
+            buildNotificationPushPayload(notification),
+        );
+    }
+
+    return {
+        alreadyConfirmed: false,
+        transactionId,
+        notification,
+        recipient: recipientProfile,
+    };
+}
+
 function sanitizeTimeZone(value) {
     const fallback = "UTC";
     if (!value || typeof value !== "string") return fallback;
@@ -1127,6 +1534,7 @@ app.post("/api/maishapay/checkout", async (req, res) => {
             wallet_id: walletId,
             access_token: accessToken,
             user_id: fallbackUserId,
+            return_path: rawReturnPath,
         } = req.body || {};
 
         const planId = String(plan || "").toLowerCase();
@@ -1148,6 +1556,11 @@ app.post("/api/maishapay/checkout", async (req, res) => {
         if (!userId) {
             return res.status(401).send("Utilisateur non authentifié");
         }
+
+        const returnPath = sanitizeReturnPath(
+            rawReturnPath,
+            buildProfileReturnPath(userId),
+        );
 
         const amount = computeMaishaPayAmount(planId, billingCycle, currency);
         if (!amount) {
@@ -1178,6 +1591,7 @@ app.post("/api/maishapay/checkout", async (req, res) => {
                 method: String(method || "card").toLowerCase(),
                 provider: provider || null,
                 wallet_id: walletId || null,
+                return_path: returnPath,
                 issued_at: Date.now(),
                 expires_at: Date.now() + 2 * 60 * 60 * 1000,
             };
@@ -1187,10 +1601,6 @@ app.post("/api/maishapay/checkout", async (req, res) => {
             }
             callbackUrl = `${CALLBACK_ORIGIN}/api/maishapay/callback/${encodeURIComponent(state)}`;
         }
-
-        const callbackInput = callbackUrl
-            ? `\n          <input type="hidden" name="callbackUrl" value="${escapeHtmlAttr(callbackUrl)}">`
-            : "";
 
         console.info("[MaishaPay checkout]", {
             gatewayMode: String(MAISHAPAY_GATEWAY_MODE),
@@ -1209,31 +1619,193 @@ app.post("/api/maishapay/checkout", async (req, res) => {
         });
 
         res.set("Content-Type", "text/html");
-        res.send(`
-      <!doctype html>
-      <html lang="fr">
-      <head>
-        <meta charset="UTF-8">
-        <title>Redirection MaishaPay</title>
-      </head>
-      <body>
-        <p>Redirection vers MaishaPay...</p>
-        <form id="mpForm" action="${MAISHAPAY_CHECKOUT_URL}" method="POST">
-          <input type="hidden" name="gatewayMode" value="${escapeHtmlAttr(MAISHAPAY_GATEWAY_MODE)}">
-          <input type="hidden" name="publicApiKey" value="${escapeHtmlAttr(MAISHAPAY_PUBLIC_KEY)}">
-          <input type="hidden" name="secretApiKey" value="${escapeHtmlAttr(MAISHAPAY_SECRET_KEY)}">
-          <input type="hidden" name="montant" value="${escapeHtmlAttr(amount)}">
-          <input type="hidden" name="devise" value="${escapeHtmlAttr(currency)}">${callbackInput}
-        </form>
-        <script>
-          document.getElementById('mpForm').submit();
-        </script>
-      </body>
-      </html>
-    `);
+        res.send(
+            renderMaishaPayCheckoutPage({
+                amount,
+                currency,
+                callbackUrl,
+            }),
+        );
     } catch (error) {
         console.error("MaishaPay checkout error:", error);
-        res.status(500).send("Erreur MaishaPay");
+        return sendCheckoutErrorResponse(
+            res,
+            error,
+            "Erreur MaishaPay",
+        );
+    }
+});
+
+app.post("/api/maishapay/support-checkout", async (req, res) => {
+    try {
+        if (!MAISHAPAY_PUBLIC_KEY || !MAISHAPAY_SECRET_KEY) {
+            return res.status(500).send("MaishaPay keys not configured");
+        }
+
+        const {
+            to_user_id: toUserId,
+            amount_usd: rawAmountUsd,
+            currency: currencyRaw,
+            method = "card",
+            provider,
+            wallet_id: walletId,
+            access_token: accessToken,
+            user_id: fallbackUserId,
+            description: rawDescription,
+            return_path: rawReturnPath,
+        } = req.body || {};
+
+        const fromUserId = await resolveUserId(accessToken, fallbackUserId);
+        if (!fromUserId) {
+            return res.status(401).send("Utilisateur non authentifié");
+        }
+
+        if (!toUserId) {
+            return res.status(400).send("Destinataire manquant");
+        }
+        if (fromUserId === toUserId) {
+            return res.status(400).send("Auto-soutien interdit");
+        }
+
+        const amountUsd = roundMoney(rawAmountUsd);
+        if (
+            !Number.isFinite(amountUsd) ||
+            amountUsd < SUPPORT_MIN_USD ||
+            amountUsd > SUPPORT_MAX_USD
+        ) {
+            return res.status(400).send(
+                `Le soutien doit etre entre ${SUPPORT_MIN_USD} et ${SUPPORT_MAX_USD} USD`,
+            );
+        }
+        if (!Number.isInteger(amountUsd)) {
+            return res
+                .status(400)
+                .send("Le soutien doit etre un montant entier en USD.");
+        }
+
+        const currency = String(currencyRaw || "USD").toUpperCase();
+        if (!["USD", "CDF"].includes(currency)) {
+            return res.status(400).send("Devise invalide");
+        }
+
+        const [senderResult, recipientResult] = await Promise.all([
+            supabase
+                .from("users")
+                .select("id, name")
+                .eq("id", fromUserId)
+                .maybeSingle(),
+            supabase
+                .from("users")
+                .select(
+                    "id, name, followers_count, plan, plan_status, plan_ends_at, is_monetized",
+                )
+                .eq("id", toUserId)
+                .maybeSingle(),
+        ]);
+        if (senderResult.error) throw senderResult.error;
+        if (recipientResult.error) throw recipientResult.error;
+
+        const senderProfile = senderResult.data || null;
+        const recipientProfile = recipientResult.data || null;
+        if (!senderProfile) {
+            return res
+                .status(400)
+                .send("Profil expediteur introuvable. Rechargez votre session.");
+        }
+        if (!recipientProfile) {
+            return res.status(404).send("Createur introuvable");
+        }
+        if (!canUserReceiveSupport(recipientProfile)) {
+            return res
+                .status(400)
+                .send("Ce createur n'est pas eligible aux soutiens.");
+        }
+
+        const checkoutAmount = computeSupportCheckoutAmount(amountUsd, currency);
+        if (!checkoutAmount) {
+            return res.status(400).send("Montant invalide");
+        }
+
+        const description = sanitizePayoutText(rawDescription, 160);
+        const returnPath = sanitizeReturnPath(
+            rawReturnPath,
+            buildProfileReturnPath(toUserId),
+        );
+        const pendingPayment = await createPendingSupportPayment({
+            fromUserId,
+            toUserId,
+            amountUsd,
+            checkoutAmount,
+            checkoutCurrency: currency,
+            method,
+            provider,
+            walletId,
+            description:
+                description ||
+                `Soutien pour ${recipientProfile.name || "un createur"}`,
+            senderName: senderProfile.name || "Utilisateur",
+            recipientName: recipientProfile.name || "Createur",
+        });
+
+        let callbackUrl = null;
+        if (MAISHAPAY_CALLBACK_ENABLED) {
+            const statePayload = {
+                payment_kind: "support",
+                from_user_id: fromUserId,
+                to_user_id: toUserId,
+                pending_transaction_id: pendingPayment.id,
+                checkout_ref_id: pendingPayment.checkoutRefId,
+                amount_usd: amountUsd,
+                checkout_amount: checkoutAmount,
+                checkout_currency: currency,
+                method: String(method || "card").toLowerCase(),
+                provider: provider || null,
+                wallet_id: walletId || null,
+                description:
+                    description ||
+                    `Soutien pour ${recipientProfile.name || "un createur"}`,
+                return_path: returnPath,
+                issued_at: Date.now(),
+                expires_at: Date.now() + 2 * 60 * 60 * 1000,
+            };
+            const state = createSignedState(statePayload);
+            if (!state) {
+                return res.status(500).send("Callback secret manquant");
+            }
+            callbackUrl = `${CALLBACK_ORIGIN}/api/maishapay/callback/${encodeURIComponent(state)}`;
+        }
+
+        console.info("[MaishaPay support checkout]", {
+            gatewayMode: String(MAISHAPAY_GATEWAY_MODE),
+            publicKey: maskKey(MAISHAPAY_PUBLIC_KEY),
+            secretKey: maskKey(MAISHAPAY_SECRET_KEY),
+            callbackEnabled: MAISHAPAY_CALLBACK_ENABLED,
+            callbackOrigin: CALLBACK_ORIGIN,
+            pendingTransactionId: pendingPayment.id,
+            checkoutRefId: pendingPayment.checkoutRefId,
+            fromUserId,
+            toUserId,
+            amountUsd,
+            checkoutAmount,
+            currency,
+            method: String(method || "card").toLowerCase(),
+        });
+
+        res.set("Content-Type", "text/html");
+        res.send(
+            renderMaishaPayCheckoutPage({
+                amount: checkoutAmount,
+                currency,
+                callbackUrl,
+            }),
+        );
+    } catch (error) {
+        console.error("MaishaPay support checkout error:", error);
+        return sendCheckoutErrorResponse(
+            res,
+            error,
+            "Erreur MaishaPay",
+        );
     }
 });
 
@@ -1252,26 +1824,76 @@ app.all("/api/maishapay/callback/:state?", async (req, res) => {
             return res.status(400).send("Callback invalide");
         }
 
+        const paymentKind = String(payload.payment_kind || "subscription").toLowerCase();
         const isSuccess =
             String(status) === "202" ||
             String(status).toLowerCase() === "success";
 
         if (isSuccess) {
-            await activateSubscription({
-                userId: payload.user_id,
-                plan: payload.plan,
-                billingCycle: payload.billing_cycle,
-                currency: payload.currency,
-                amount: payload.amount,
+            if (paymentKind === "support") {
+                await confirmSupportPayment({
+                    fromUserId: payload.from_user_id,
+                    toUserId: payload.to_user_id,
+                    amountUsd: payload.amount_usd,
+                    checkoutCurrency: payload.checkout_currency,
+                    checkoutAmount: payload.checkout_amount,
+                    method: payload.method,
+                    provider: payload.provider,
+                    walletId: payload.wallet_id,
+                    description: payload.description,
+                    pendingTransactionId: payload.pending_transaction_id,
+                    transactionRefId,
+                    operatorRefId,
+                    confirmationSource: "maishapay_callback",
+                });
+            } else {
+                await activateSubscription({
+                    userId: payload.user_id,
+                    plan: payload.plan,
+                    billingCycle: payload.billing_cycle,
+                    currency: payload.currency,
+                    amount: payload.amount,
+                    transactionRefId,
+                    operatorRefId,
+                    method: payload.method,
+                    provider: payload.provider,
+                    walletId: payload.wallet_id,
+                    pendingTransactionId: payload.pending_transaction_id,
+                    confirmationSource: "maishapay_callback",
+                });
+            }
+        } else {
+            await failPendingTransaction({
+                pendingTransactionId: payload.pending_transaction_id,
                 transactionRefId,
                 operatorRefId,
-                method: payload.method,
-                provider: payload.provider,
-                walletId: payload.wallet_id,
-                pendingTransactionId: payload.pending_transaction_id,
+                reason: description || String(status || "Paiement non confirme"),
                 confirmationSource: "maishapay_callback",
             });
         }
+
+        const successTitle =
+            paymentKind === "support" ? "Soutien confirmé" : "Paiement confirmé";
+        const successDescription =
+            paymentKind === "support"
+                ? "Le soutien a bien ete confirme et sera visible dans le dashboard du createur."
+                : "Votre abonnement est activé.";
+        const failureDescription =
+            paymentKind === "support"
+                ? "Le soutien n'a pas ete confirme. Veuillez reessayer ou changer de moyen de paiement."
+                : "Veuillez réessayer ou changer de moyen de paiement.";
+        const returnPath =
+            paymentKind === "support"
+                ? payload.return_path || "/"
+                : payload.return_path || buildProfileReturnPath(payload.user_id);
+        const returnHref = String(returnPath || "").startsWith("http")
+            ? String(returnPath)
+            : `${PRIMARY_ORIGIN}/${String(returnPath || "/").replace(/^\//, "")}`;
+        const returnLabel =
+            paymentKind === "support"
+                ? "Retour a la page precedente"
+                : "Retour au profil";
+        const autoRedirectDelayMs = isSuccess ? 1400 : 2200;
 
         res.set("Content-Type", "text/html");
         res.send(`
@@ -1291,10 +1913,15 @@ app.all("/api/maishapay/callback/:state?", async (req, res) => {
       </head>
       <body>
         <div class="card">
-          <div class="status">${isSuccess ? "Paiement confirmé" : "Paiement non confirmé"}</div>
-          <div class="desc">${description || (isSuccess ? "Votre abonnement est activé." : "Veuillez réessayer ou changer de moyen de paiement.")}</div>
-          <a href="${PRIMARY_ORIGIN}/profile.html">Retour au profil</a>
+          <div class="status">${isSuccess ? successTitle : "Paiement non confirmé"}</div>
+          <div class="desc">${description || (isSuccess ? successDescription : failureDescription)}</div>
+          <a href="${escapeHtmlAttr(returnHref)}">${returnLabel}</a>
         </div>
+        <script>
+          setTimeout(function () {
+            window.location.replace(${JSON.stringify(returnHref)});
+          }, ${autoRedirectDelayMs});
+        </script>
       </body>
       </html>
     `);

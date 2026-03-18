@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Paiement abonnement - XERA</title>
+    <title>Paiement XERA</title>
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
     <link rel="stylesheet" href="css/style.css">
     <link rel="stylesheet" href="css/monetization.css">
@@ -44,11 +44,11 @@
             <section class="payment-summary">
                 <div class="summary-card">
                     <div class="summary-header">
-                        <span class="summary-label">Plan choisi</span>
+                        <span class="summary-label" id="summaryLabel">Plan choisi</span>
                         <span class="summary-pill" id="summaryCycle">Mensuel</span>
                     </div>
                     <h1 id="summaryPlan">Standard</h1>
-                    <p class="summary-sub">Active ton badge et débloque les avantages.</p>
+                    <p class="summary-sub" id="summarySub">Active ton badge et débloque les avantages.</p>
                     <div class="summary-price">
                         <span id="summaryAmount">$2.99</span>
                         <small id="summaryPeriod">/mois</small>
@@ -61,13 +61,18 @@
             <section class="payment-form">
                 <div class="payment-card">
                     <div class="payment-card-head">
-                        <h2>Choisis ton moyen de paiement</h2>
-                        <p>Sélectionne carte ou mobile money, puis la devise.</p>
+                        <h2 id="paymentFormTitle">Choisis ton moyen de paiement</h2>
+                        <p id="paymentFormSubtitle">Sélectionne carte ou mobile money, puis la devise.</p>
                     </div>
 
                     <form id="maishapay-form" method="POST">
+                        <input type="hidden" name="kind" id="inputKind" value="subscription">
                         <input type="hidden" name="plan" id="inputPlan">
                         <input type="hidden" name="billing_cycle" id="inputCycle">
+                        <input type="hidden" name="to_user_id" id="inputTargetUserId">
+                        <input type="hidden" name="amount_usd" id="inputSupportAmountUsd">
+                        <input type="hidden" name="description" id="inputSupportDescription">
+                        <input type="hidden" name="return_path" id="inputReturnPath">
                         <input type="hidden" name="currency" id="inputCurrency" value="USD">
                         <input type="hidden" name="method" id="inputMethod" value="card">
                         <input type="hidden" name="provider" id="inputProvider">
@@ -131,7 +136,7 @@
 
     <script src="js/router.js"></script>
     <script src="js/supabase-config.js"></script>
-    <script src="js/monetization.js?v=20260318-3"></script>
-    <script src="js/subscription-payment.js"></script>
+    <script src="js/monetization.js?v=20260318-6"></script>
+    <script src="js/subscription-payment.js?v=20260318-3"></script>
 </body>
 </html>

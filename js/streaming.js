@@ -2096,7 +2096,7 @@ function updateStreamSupportButton(stream) {
             event.preventDefault();
             event.stopPropagation();
             if (typeof window.openSupportModal === 'function') {
-                window.openSupportModal(hostId, hostName);
+                window.openSupportModal(hostId, hostName, btn);
                 return;
             }
             if (window.ToastManager) {
