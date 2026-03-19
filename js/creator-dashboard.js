@@ -10,185 +10,14 @@ window.creatorDashboardRealtimeChannels = [];
 window.creatorDashboardRefreshTimer = null;
 window.creatorDashboardPollingTimer = null;
 window.creatorDashboardLastSupportNotificationId = null;
-window.creatorDashboardRefreshInFlight = false;
-window.creatorDashboardNetworkBackoffUntil = 0;
-window.creatorDashboardLoggedIssues = window.creatorDashboardLoggedIssues || {};
-window.creatorDashboardNetworkListenersAttached = false;
-
-const SUPPORT_COMMISSION_RATE = 0.2;
-const DASHBOARD_NETWORK_BACKOFF_MS = 25000;
-const DASHBOARD_TRANSIENT_NETWORK_PATTERNS = [
-    'failed to fetch',
-    'networkerror',
-    'network changed',
-    'err_network_changed',
-    'internet disconnected',
-    'err_internet_disconnected',
-    'connection closed',
-    'err_connection_closed',
-    'connection reset',
-    'err_connection_reset',
-    'name not resolved',
-    'err_name_not_resolved',
-    'load failed',
-];
-
-function getDashboardErrorText(error) {
-    if (!error) return '';
-    if (typeof error === 'string') return error;
-    return [
-        error.message,
-        error.details,
-        error.hint,
-        error.code,
-        error.statusText,
-    ]
-        .filter(Boolean)
-        .join(' | ');
-}
-
-function isTransientDashboardNetworkError(error) {
-    if (!error) return false;
-    if (error.isTransientNetworkError) return true;
-    if (typeof navigator !== 'undefined' && navigator.onLine === false) {
-        return true;
-    }
-    const text = getDashboardErrorText(error).toLowerCase();
-    return DASHBOARD_TRANSIENT_NETWORK_PATTERNS.some((pattern) =>
-        text.includes(pattern),
-    );
-}
-
-function getDashboardNetworkWarningMessage() {
-    if (typeof navigator !== 'undefined' && navigator.onLine === false) {
-        return 'Connexion internet indisponible. Le dashboard se mettra à jour dès le retour du réseau.';
-    }
-    return 'Connexion instable. Le dashboard se mettra à jour automatiquement dès que le réseau sera stable.';
-}
-
-function normalizeDashboardTransientError(error, fallbackMessage) {
-    const wrapped =
-        error instanceof Error ? error : new Error(fallbackMessage);
-    wrapped.isTransientNetworkError = true;
-    if (!wrapped.originalMessage) {
-        wrapped.originalMessage = wrapped.message || '';
-    }
-    wrapped.message = fallbackMessage || wrapped.message;
-    return wrapped;
-}
-
-function pauseDashboardNetworkRefresh(durationMs = DASHBOARD_NETWORK_BACKOFF_MS) {
-    const nextDeadline = Date.now() + Math.max(1000, durationMs);
-    window.creatorDashboardNetworkBackoffUntil = Math.max(
-        Number(window.creatorDashboardNetworkBackoffUntil || 0),
-        nextDeadline,
-    );
-}
-
-function shouldSkipDashboardNetworkRefresh() {
-    if (typeof navigator !== 'undefined' && navigator.onLine === false) {
-        return true;
-    }
-    return Date.now() < Number(window.creatorDashboardNetworkBackoffUntil || 0);
-}
-
-function shouldLogDashboardIssue(key, cooldownMs = 30000) {
-    const now = Date.now();
-    const lastAt = Number(window.creatorDashboardLoggedIssues[key] || 0);
-    if (now - lastAt < cooldownMs) {
-        return false;
-    }
-    window.creatorDashboardLoggedIssues[key] = now;
-    return true;
-}
-
-function logDashboardIssue(label, error, options = {}) {
-    const {
-        level = 'error',
-        key = label,
-        cooldownMs = 30000,
-        silentTransient = true,
-    } = options;
-
-    if (isTransientDashboardNetworkError(error)) {
-        pauseDashboardNetworkRefresh();
-        if (silentTransient) {
-            return;
-        }
-    }
-
-    if (!shouldLogDashboardIssue(key, cooldownMs)) {
-        return;
-    }
-
-    const logger = level === 'warn' ? console.warn : console.error;
-    logger(label, error);
-}
-
-function setupDashboardNetworkListeners() {
-    if (window.creatorDashboardNetworkListenersAttached) {
-        return;
-    }
-    window.creatorDashboardNetworkListenersAttached = true;
-
-    window.addEventListener('offline', () => {
-        pauseDashboardNetworkRefresh();
-        setWalletNotice(getDashboardNetworkWarningMessage(), 'warning');
-    });
-
-    window.addEventListener('online', () => {
-        window.creatorDashboardNetworkBackoffUntil = 0;
-        const userId = window.currentUserId || window.currentUser?.id || null;
-        if (!userId) return;
-        void refreshWalletData();
-        void loadRevenueData(userId);
-        void loadTransactions(userId);
-        void loadPayouts(userId);
-        void syncDashboardSupportNotification(userId, { silent: true });
-    });
-}
-
-function lockDashboardStandaloneZoom() {
-    const isStandalone =
-        (typeof window.matchMedia === 'function' &&
-            window.matchMedia('(display-mode: standalone)').matches) ||
-        (typeof navigator !== 'undefined' && navigator.standalone === true);
-
-    if (!isStandalone || window.__xeraDashboardZoomLocked) {
-        return;
-    }
-
-    window.__xeraDashboardZoomLocked = true;
-
-    let viewport = document.querySelector('meta[name="viewport"]');
-    if (!viewport) {
-        viewport = document.createElement('meta');
-        viewport.setAttribute('name', 'viewport');
-        document.head.appendChild(viewport);
-    }
-
-    viewport.setAttribute(
-        'content',
-        'width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover',
-    );
-
-    const blockGesture = (event) => event.preventDefault();
-    document.addEventListener('gesturestart', blockGesture, { passive: false });
-    document.addEventListener('gesturechange', blockGesture, { passive: false });
-    document.addEventListener('gestureend', blockGesture, { passive: false });
-    document.addEventListener(
-        'touchmove',
-        (event) => {
-            if (event.touches && event.touches.length > 1) {
-                event.preventDefault();
-            }
-        },
-        { passive: false },
-    );
-}
 
 document.addEventListener('DOMContentLoaded', async () => {
-    lockDashboardStandaloneZoom();
+    // Rétablir le zoom uniquement sur le dashboard pour l'accessibilité
+    const viewport = document.querySelector('meta[name="viewport"]');
+    if (viewport) {
+        viewport.setAttribute('content', 'width=device-width, initial-scale=1.0, maximum-scale=5.0, user-scalable=yes');
+    }
+
     if (window.initI18n) {
         await window.initI18n();
     }
@@ -259,44 +88,6 @@ window.handleProfileNavigation = handleProfileNavigation;
 window.openMessagesPage = openMessagesPage;
 window.toggleNotificationPanel = toggleNotificationPanel;
 
-function computeSupportBreakdown(amountGross) {
-    const gross = Number(amountGross || 0);
-    if (!Number.isFinite(gross) || gross <= 0) {
-        return { gross: 0, commission: 0, netCreator: 0 };
-    }
-
-    const commission = Math.round(gross * SUPPORT_COMMISSION_RATE * 100) / 100;
-    const netCreator = Math.round((gross - commission) * 100) / 100;
-
-    return { gross, commission, netCreator };
-}
-
-function resolveDashboardTransactionNet(entry) {
-    const explicitNet = Number(entry?.amount_net_creator);
-    if (Number.isFinite(explicitNet) && explicitNet > 0) {
-        return explicitNet;
-    }
-
-    if (String(entry?.type || '').toLowerCase() === 'support') {
-        return computeSupportBreakdown(entry?.amount_gross).netCreator;
-    }
-
-    return Number.isFinite(explicitNet) ? explicitNet : 0;
-}
-
-function resolveDashboardTransactionCommission(entry) {
-    const explicitCommission = Number(entry?.amount_commission_xera);
-    if (Number.isFinite(explicitCommission) && explicitCommission > 0) {
-        return explicitCommission;
-    }
-
-    if (String(entry?.type || '').toLowerCase() === 'support') {
-        return computeSupportBreakdown(entry?.amount_gross).commission;
-    }
-
-    return Number.isFinite(explicitCommission) ? explicitCommission : 0;
-}
-
 function resolveDashboardApiBaseUrl() {
     try {
         const { protocol, hostname } = window.location;
@@ -355,12 +146,6 @@ async function fetchDashboardApiJson(path, options = {}) {
                 `API monétisation inaccessible sur ${apiBase}. Lancez 'npm run api' puis rechargez la page.`,
             );
         }
-        if (isTransientDashboardNetworkError(error)) {
-            throw normalizeDashboardTransientError(
-                error,
-                getDashboardNetworkWarningMessage(),
-            );
-        }
         throw new Error('Impossible de contacter le serveur de monétisation.');
     }
 
@@ -407,24 +192,20 @@ function scheduleDashboardRealtimeRefresh(userId) {
     }
 
     window.creatorDashboardRefreshTimer = setTimeout(async () => {
-        if (window.creatorDashboardRefreshInFlight || shouldSkipDashboardNetworkRefresh()) {
-            return;
-        }
-        window.creatorDashboardRefreshInFlight = true;
         try {
-            await Promise.allSettled([
+            await Promise.all([
                 refreshWalletData(),
                 loadRevenueData(userId),
                 loadTransactions(userId),
             ]);
-        } finally {
-            window.creatorDashboardRefreshInFlight = false;
+        } catch (error) {
+            console.error('Erreur refresh realtime dashboard:', error);
         }
     }, 900);
 }
 
 async function syncDashboardSupportNotification(userId, options = {}) {
-    if (!userId || shouldSkipDashboardNetworkRefresh()) return;
+    if (!userId) return;
 
     try {
         const { data, error } = await supabase
@@ -454,14 +235,7 @@ async function syncDashboardSupportNotification(userId, options = {}) {
             showSuccess(latestNotification.message);
         }
     } catch (error) {
-        if (isTransientDashboardNetworkError(error)) {
-            pauseDashboardNetworkRefresh();
-            return;
-        }
-        logDashboardIssue('Erreur sync notification soutien dashboard:', error, {
-            level: 'warn',
-            key: 'dashboard-support-notification',
-        });
+        console.warn('Erreur sync notification soutien dashboard:', error);
     }
 }
 
@@ -558,9 +332,6 @@ function startDashboardAutoRefresh(userId) {
     if (!userId) return;
 
     window.creatorDashboardPollingTimer = setInterval(() => {
-        if (shouldSkipDashboardNetworkRefresh()) {
-            return;
-        }
         scheduleDashboardRealtimeRefresh(userId);
         syncDashboardSupportNotification(userId);
     }, 30000);
@@ -921,14 +692,7 @@ async function refreshWalletData() {
         const payload = await fetchDashboardApiJson('/api/monetization/overview');
         renderWalletOverviewUI(payload);
     } catch (error) {
-        if (isTransientDashboardNetworkError(error)) {
-            pauseDashboardNetworkRefresh();
-            setWalletNotice(getDashboardNetworkWarningMessage(), 'warning');
-            return;
-        }
-        logDashboardIssue('Erreur chargement portefeuille:', error, {
-            key: 'dashboard-wallet-load',
-        });
+        console.error('Erreur chargement portefeuille:', error);
         setWalletNotice(
             error?.message || 'Impossible de charger le portefeuille.',
             'error',
@@ -1078,7 +842,6 @@ async function initDashboard() {
         
         window.currentUser = profile;
         window.currentUserId = profile.id;
-        setupDashboardNetworkListeners();
         renderDashboardIdentity(profile);
         updateDashboardNavigation(profile);
         
@@ -1233,7 +996,6 @@ function updateMonetizationStatus(profile) {
 
 // Charger les données de revenus
 async function loadRevenueData(userId, period = 'all') {
-    if (!userId || shouldSkipDashboardNetworkRefresh()) return false;
     try {
         // Calculer les dates selon la période
         let startDate;
@@ -1274,18 +1036,8 @@ async function loadRevenueData(userId, period = 'all') {
                 .order('period_month', { ascending: false }),
         ]);
 
-        const revenueError =
-            supportResult.error ||
-            videoTransactionsResult.error ||
-            videoPayoutsResult.error;
-        if (revenueError) {
-            if (isTransientDashboardNetworkError(revenueError)) {
-                pauseDashboardNetworkRefresh();
-                return false;
-            }
-            logDashboardIssue('Erreur chargement revenus:', revenueError, {
-                key: 'dashboard-revenue-load',
-            });
+        if (supportResult.error || videoTransactionsResult.error || videoPayoutsResult.error) {
+            console.error('Erreur chargement revenus:', supportResult.error || videoTransactionsResult.error || videoPayoutsResult.error);
             return;
         }
 
@@ -1314,7 +1066,7 @@ async function loadRevenueData(userId, period = 'all') {
         const videoCount = creditedVideoEntries.length;
 
         supportTransactions.forEach(tx => {
-            const net = resolveDashboardTransactionNet(tx);
+            const net = parseFloat(tx.amount_net_creator || 0);
 
             totalNet += net;
             supportRevenue += net;
@@ -1335,22 +1087,14 @@ async function loadRevenueData(userId, period = 'all') {
         
         // Mettre à jour les stats vidéo dans la card
         document.getElementById('videoStats').textContent = `${videoCount} paiement${videoCount !== 1 ? 's' : ''} credite${videoCount !== 1 ? 's' : ''}`;
-        return true;
+        
     } catch (error) {
-        if (isTransientDashboardNetworkError(error)) {
-            pauseDashboardNetworkRefresh();
-            return false;
-        }
-        logDashboardIssue('Exception chargement revenus:', error, {
-            key: 'dashboard-revenue-load-exception',
-        });
-        return false;
+        console.error('Exception chargement revenus:', error);
     }
 }
 
 // Charger les statistiques vidéo
 async function loadVideoStats(userId) {
-    if (!userId || shouldSkipDashboardNetworkRefresh()) return false;
     try {
     const videoSection = document.getElementById('videoStatsSection');
     if (videoSection) {
@@ -1377,15 +1121,9 @@ async function loadVideoStats(userId) {
     const { data: stats, error } = await getCreatorVideoStats(userId, 'month');
     
     if (error) {
-        if (isTransientDashboardNetworkError(error)) {
-            pauseDashboardNetworkRefresh();
-            return false;
-        }
-        logDashboardIssue('Erreur stats vidéo:', error, {
-            key: 'dashboard-video-stats',
-        });
+        console.error('Erreur stats vidéo:', error);
         return;
-    }
+        }
         
         if (stats) {
             document.getElementById('totalViews').textContent = stats.totalViews.toLocaleString();
@@ -1393,22 +1131,14 @@ async function loadVideoStats(userId) {
             document.getElementById('videoCount').textContent = stats.videoCount;
             document.getElementById('estimatedRevenue').textContent = formatCurrency(stats.estimatedRevenue);
         }
-        return true;
+        
     } catch (error) {
-        if (isTransientDashboardNetworkError(error)) {
-            pauseDashboardNetworkRefresh();
-            return false;
-        }
-        logDashboardIssue('Exception stats vidéo:', error, {
-            key: 'dashboard-video-stats-exception',
-        });
-        return false;
+        console.error('Exception stats vidéo:', error);
     }
 }
 
 // Charger les transactions
 async function loadTransactions(userId, options = {}) {
-    if (!userId || shouldSkipDashboardNetworkRefresh()) return false;
     try {
         const { data: transactions, error } = await getCreatorTransactions(userId, {
             limit: 50,
@@ -1416,13 +1146,7 @@ async function loadTransactions(userId, options = {}) {
         });
         
         if (error) {
-            if (isTransientDashboardNetworkError(error)) {
-                pauseDashboardNetworkRefresh();
-                return false;
-            }
-            logDashboardIssue('Erreur chargement transactions:', error, {
-                key: 'dashboard-transactions-load',
-            });
+            console.error('Erreur chargement transactions:', error);
             return;
         }
         
@@ -1435,7 +1159,7 @@ async function loadTransactions(userId, options = {}) {
                     <td colspan="6">Aucune transaction pour le moment</td>
                 </tr>
             `;
-            return true;
+            return;
         }
         
         tbody.innerHTML = transactions.map(tx => {
@@ -1466,39 +1190,25 @@ async function loadTransactions(userId, options = {}) {
                     <td>${date}</td>
                     <td>${typeLabels[tx.type] || tx.type}</td>
                     <td>${formatCurrency(tx.amount_gross)}</td>
-                    <td>${formatCurrency(resolveDashboardTransactionCommission(tx))}</td>
-                    <td><strong>${formatCurrency(resolveDashboardTransactionNet(tx))}</strong></td>
+                    <td>${formatCurrency(tx.amount_commission_xera)}</td>
+                    <td><strong>${formatCurrency(tx.amount_net_creator)}</strong></td>
                     <td>${statusLabels[tx.status] || tx.status}</td>
                 </tr>
             `;
         }).join('');
-        return true;
+        
     } catch (error) {
-        if (isTransientDashboardNetworkError(error)) {
-            pauseDashboardNetworkRefresh();
-            return false;
-        }
-        logDashboardIssue('Exception chargement transactions:', error, {
-            key: 'dashboard-transactions-load-exception',
-        });
-        return false;
+        console.error('Exception chargement transactions:', error);
     }
 }
 
 // Charger les payouts vidéo
 async function loadPayouts(userId) {
-    if (!userId || shouldSkipDashboardNetworkRefresh()) return false;
     try {
         const { data: payouts, error } = await getCreatorVideoPayouts(userId);
         
         if (error) {
-            if (isTransientDashboardNetworkError(error)) {
-                pauseDashboardNetworkRefresh();
-                return false;
-            }
-            logDashboardIssue('Erreur chargement payouts:', error, {
-                key: 'dashboard-payouts-load',
-            });
+            console.error('Erreur chargement payouts:', error);
             return;
         }
         
@@ -1511,7 +1221,7 @@ async function loadPayouts(userId) {
                     <td colspan="6">Aucun paiement pour le moment</td>
                 </tr>
             `;
-            return true;
+            return;
         }
         
         tbody.innerHTML = payouts.map(payout => {
@@ -1539,16 +1249,9 @@ async function loadPayouts(userId) {
                 </tr>
             `;
         }).join('');
-        return true;
+        
     } catch (error) {
-        if (isTransientDashboardNetworkError(error)) {
-            pauseDashboardNetworkRefresh();
-            return false;
-        }
-        logDashboardIssue('Exception chargement payouts:', error, {
-            key: 'dashboard-payouts-load-exception',
-        });
-        return false;
+        console.error('Exception chargement payouts:', error);
     }
 }
 
