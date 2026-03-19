@@ -302,7 +302,7 @@ function createSignedState(payload) {
     const signature = crypto
         .createHmac("sha256", MAISHAPAY_CALLBACK_SECRET)
         .update(data)
-        .digest("hex");
+        .digest("base64url");
     return `${data}.${signature}`;
 }
 
@@ -313,25 +313,28 @@ function verifySignedState(state) {
     const expected = crypto
         .createHmac("sha256", MAISHAPAY_CALLBACK_SECRET)
         .update(data)
+        .digest("base64url");
+    const expectedHex = crypto
+        .createHmac("sha256", MAISHAPAY_CALLBACK_SECRET)
+        .update(data)
         .digest("hex");
-    if (
-        !/^[a-f0-9]+$/i.test(signature) ||
-        signature.length !== expected.length
-    ) {
-        return null;
-    }
-    const providedBuffer = Buffer.from(signature, "hex");
-    const expectedBuffer = Buffer.from(expected, "hex");
-    if (providedBuffer.length !== expectedBuffer.length) {
-        return null;
-    }
-    const valid = crypto.timingSafeEqual(providedBuffer, expectedBuffer);
-    if (!valid) return null;
+    const validBase64Url =
+        signature.length === expected.length &&
+        crypto.timingSafeEqual(Buffer.from(signature), Buffer.from(expected));
+    const validHex =
+        /^[a-f0-9]+$/i.test(signature) &&
+        signature.length === expectedHex.length &&
+        crypto.timingSafeEqual(
+            Buffer.from(signature, "hex"),
+            Buffer.from(expectedHex, "hex"),
+        );
+    if (!validBase64Url && !validHex) return null;
     try {
         const payload = JSON.parse(
             Buffer.from(data, "base64url").toString("utf8"),
         );
-        if (payload.expires_at && Date.now() > payload.expires_at) return null;
+        const expiresAt = Number(payload?.e ?? payload?.expires_at);
+        if (Number.isFinite(expiresAt) && Date.now() > expiresAt) return null;
         return payload;
     } catch (e) {
         return null;
@@ -485,6 +488,7 @@ async function createPendingSubscriptionPayment({
     method,
     provider,
     walletId,
+    returnPath,
     callbackEnabled = MAISHAPAY_CALLBACK_ENABLED,
     callbackOrigin = CALLBACK_ORIGIN,
 }) {
@@ -498,6 +502,7 @@ async function createPendingSubscriptionPayment({
         method: String(method || "card").toLowerCase(),
         provider: provider || null,
         wallet_id: walletId || null,
+        callback_return_path: returnPath || null,
         callback_enabled: callbackEnabled,
         callback_origin: callbackEnabled ? callbackOrigin || null : null,
         checkout_started_at: nowIso,
@@ -543,6 +548,7 @@ async function createPendingSupportPayment({
     description,
     senderName,
     recipientName,
+    returnPath,
     callbackEnabled = MAISHAPAY_CALLBACK_ENABLED,
     callbackOrigin = CALLBACK_ORIGIN,
 }) {
@@ -561,6 +567,7 @@ async function createPendingSupportPayment({
         support_amount_usd: breakdown.gross,
         checkout_amount: checkoutAmount,
         checkout_currency: String(checkoutCurrency || "USD").toUpperCase(),
+        callback_return_path: returnPath || null,
         commission_rate: SUPPORT_COMMISSION_RATE,
         amount_net_creator: breakdown.netCreator,
         amount_commission_xera: breakdown.commission,
@@ -1886,6 +1893,7 @@ async function handleMaishaPaySubscriptionCheckout(req, res) {
             method,
             provider,
             walletId,
+            returnPath,
             callbackEnabled: callbackConfig.callbackEnabled,
             callbackOrigin: callbackConfig.callbackOrigin,
         });
@@ -1893,19 +1901,8 @@ async function handleMaishaPaySubscriptionCheckout(req, res) {
         let callbackUrl = null;
         if (callbackConfig.callbackEnabled) {
             const statePayload = {
-                user_id: userId,
-                pending_transaction_id: pendingPayment.id,
-                checkout_ref_id: pendingPayment.checkoutRefId,
-                plan: planId,
-                billing_cycle: billingCycle,
-                currency,
-                amount,
-                method: String(method || "card").toLowerCase(),
-                provider: provider || null,
-                wallet_id: walletId || null,
-                return_path: returnPath,
-                issued_at: Date.now(),
-                expires_at: Date.now() + 2 * 60 * 60 * 1000,
+                i: pendingPayment.id,
+                e: Date.now() + 2 * 60 * 60 * 1000,
             };
             const state = createSignedState(statePayload);
             if (!state) {
@@ -2077,6 +2074,7 @@ async function handleMaishaPaySupportCheckout(req, res) {
                 `Soutien pour ${recipientProfile.name || "un createur"}`,
             senderName: senderProfile.name || "Utilisateur",
             recipientName: recipientProfile.name || "Createur",
+            returnPath,
             callbackEnabled: callbackConfig.callbackEnabled,
             callbackOrigin: callbackConfig.callbackOrigin,
         });
@@ -2084,23 +2082,8 @@ async function handleMaishaPaySupportCheckout(req, res) {
         let callbackUrl = null;
         if (callbackConfig.callbackEnabled) {
             const statePayload = {
-                payment_kind: "support",
-                from_user_id: fromUserId,
-                to_user_id: toUserId,
-                pending_transaction_id: pendingPayment.id,
-                checkout_ref_id: pendingPayment.checkoutRefId,
-                amount_usd: amountUsd,
-                checkout_amount: checkoutAmount,
-                checkout_currency: currency,
-                method: String(method || "card").toLowerCase(),
-                provider: provider || null,
-                wallet_id: walletId || null,
-                description:
-                    description ||
-                    `Soutien pour ${recipientProfile.name || "un createur"}`,
-                return_path: returnPath,
-                issued_at: Date.now(),
-                expires_at: Date.now() + 2 * 60 * 60 * 1000,
+                i: pendingPayment.id,
+                e: Date.now() + 2 * 60 * 60 * 1000,
             };
             const state = createSignedState(statePayload);
             if (!state) {
@@ -2163,7 +2146,34 @@ async function handleMaishaPayCallback(req, res) {
             return res.status(400).send("Callback invalide");
         }
 
-        const paymentKind = String(payload.payment_kind || "subscription").toLowerCase();
+        const pendingTransactionId = String(
+            payload.i || payload.pending_transaction_id || "",
+        ).trim();
+        if (!pendingTransactionId) {
+            return res.status(400).send("Transaction callback manquante");
+        }
+
+        const { data: callbackTransaction, error: callbackTransactionError } =
+            await supabase
+                .from("transactions")
+                .select(
+                    "id, from_user_id, to_user_id, type, amount_gross, currency, status, description, metadata",
+                )
+                .eq("id", pendingTransactionId)
+                .maybeSingle();
+        if (callbackTransactionError) throw callbackTransactionError;
+        if (!callbackTransaction) {
+            return res.status(404).send("Transaction callback introuvable");
+        }
+
+        const callbackMetadata =
+            callbackTransaction.metadata &&
+            typeof callbackTransaction.metadata === "object"
+                ? callbackTransaction.metadata
+                : {};
+        const paymentKind = String(
+            payload.k || payload.payment_kind || callbackTransaction.type || "subscription",
+        ).toLowerCase();
         const isSuccess =
             String(status) === "202" ||
             String(status).toLowerCase() === "success";
@@ -2171,39 +2181,49 @@ async function handleMaishaPayCallback(req, res) {
         if (isSuccess) {
             if (paymentKind === "support") {
                 await confirmSupportPayment({
-                    fromUserId: payload.from_user_id,
-                    toUserId: payload.to_user_id,
-                    amountUsd: payload.amount_usd,
-                    checkoutCurrency: payload.checkout_currency,
-                    checkoutAmount: payload.checkout_amount,
-                    method: payload.method,
-                    provider: payload.provider,
-                    walletId: payload.wallet_id,
-                    description: payload.description,
-                    pendingTransactionId: payload.pending_transaction_id,
+                    fromUserId: callbackTransaction.from_user_id,
+                    toUserId: callbackTransaction.to_user_id,
+                    amountUsd:
+                        callbackMetadata.support_amount_usd ??
+                        callbackTransaction.amount_gross,
+                    checkoutCurrency:
+                        callbackMetadata.checkout_currency ||
+                        callbackTransaction.currency,
+                    checkoutAmount:
+                        callbackMetadata.checkout_amount ||
+                        callbackTransaction.amount_gross,
+                    method: callbackMetadata.method,
+                    provider: callbackMetadata.provider,
+                    walletId: callbackMetadata.wallet_id,
+                    description: callbackTransaction.description,
+                    pendingTransactionId: callbackTransaction.id,
                     transactionRefId,
                     operatorRefId,
                     confirmationSource: "maishapay_callback",
                 });
             } else {
                 await activateSubscription({
-                    userId: payload.user_id,
-                    plan: payload.plan,
-                    billingCycle: payload.billing_cycle,
-                    currency: payload.currency,
-                    amount: payload.amount,
+                    userId:
+                        callbackTransaction.to_user_id ||
+                        callbackTransaction.from_user_id,
+                    plan: callbackMetadata.plan,
+                    billingCycle: callbackMetadata.billing_cycle,
+                    currency:
+                        callbackTransaction.currency ||
+                        callbackMetadata.currency,
+                    amount: callbackTransaction.amount_gross,
                     transactionRefId,
                     operatorRefId,
-                    method: payload.method,
-                    provider: payload.provider,
-                    walletId: payload.wallet_id,
-                    pendingTransactionId: payload.pending_transaction_id,
+                    method: callbackMetadata.method,
+                    provider: callbackMetadata.provider,
+                    walletId: callbackMetadata.wallet_id,
+                    pendingTransactionId: callbackTransaction.id,
                     confirmationSource: "maishapay_callback",
                 });
             }
         } else {
             await failPendingTransaction({
-                pendingTransactionId: payload.pending_transaction_id,
+                pendingTransactionId: callbackTransaction.id,
                 transactionRefId,
                 operatorRefId,
                 reason: description || String(status || "Paiement non confirme"),
@@ -2223,8 +2243,12 @@ async function handleMaishaPayCallback(req, res) {
                 : "Veuillez réessayer ou changer de moyen de paiement.";
         const returnPath =
             paymentKind === "support"
-                ? payload.return_path || "/"
-                : payload.return_path || buildProfileReturnPath(payload.user_id);
+                ? callbackMetadata.callback_return_path || "/"
+                : callbackMetadata.callback_return_path ||
+                  buildProfileReturnPath(
+                      callbackTransaction.to_user_id ||
+                          callbackTransaction.from_user_id,
+                  );
         const returnHref = String(returnPath || "").startsWith("http")
             ? String(returnPath)
             : `${PRIMARY_ORIGIN}/${String(returnPath || "/").replace(/^\//, "")}`;
