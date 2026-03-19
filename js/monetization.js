@@ -63,6 +63,52 @@ const PAYMENT_RULES = {
 };
 
 const VIDEO_MONETIZATION_MIN_DURATION_SECONDS = 60;
+const MONETIZATION_TRANSIENT_NETWORK_PATTERNS = [
+    'failed to fetch',
+    'networkerror',
+    'network changed',
+    'err_network_changed',
+    'internet disconnected',
+    'err_internet_disconnected',
+    'connection closed',
+    'err_connection_closed',
+    'connection reset',
+    'err_connection_reset',
+    'name not resolved',
+    'err_name_not_resolved',
+    'load failed',
+];
+
+function getMonetizationErrorText(error) {
+    if (!error) return '';
+    if (typeof error === 'string') return error;
+    return [error.message, error.details, error.hint, error.code]
+        .filter(Boolean)
+        .join(' | ');
+}
+
+function isTransientMonetizationNetworkError(error) {
+    if (!error) return false;
+    if (typeof navigator !== 'undefined' && navigator.onLine === false) {
+        return true;
+    }
+    const text = getMonetizationErrorText(error).toLowerCase();
+    return MONETIZATION_TRANSIENT_NETWORK_PATTERNS.some((pattern) =>
+        text.includes(pattern),
+    );
+}
+
+function normalizeMonetizationQueryError(error) {
+    if (error && typeof error === 'object') {
+        return error;
+    }
+    return {
+        message: String(error || 'Erreur réseau inconnue.'),
+        details: '',
+        hint: '',
+        code: '',
+    };
+}
 
 function normalizeVideoDurationSeconds(value) {
     const duration = Number.parseFloat(value);
@@ -337,14 +383,24 @@ async function getCreatorTransactions(creatorId, options = {}) {
         const { data, error } = await query;
         
         if (error) {
-            console.error('Erreur récupération transactions:', error);
-            return { success: false, error: error.message };
+            if (!isTransientMonetizationNetworkError(error)) {
+                console.error('Erreur récupération transactions:', error);
+            }
+            return {
+                success: false,
+                error: normalizeMonetizationQueryError(error),
+            };
         }
         
         return { success: true, data: data || [] };
     } catch (error) {
-        console.error('Exception récupération transactions:', error);
-        return { success: false, error: error.message };
+        if (!isTransientMonetizationNetworkError(error)) {
+            console.error('Exception récupération transactions:', error);
+        }
+        return {
+            success: false,
+            error: normalizeMonetizationQueryError(error),
+        };
     }
 }
 
@@ -528,8 +584,13 @@ async function getCreatorVideoStats(creatorId, period = 'month') {
 
         const { data, error } = await query;
         if (error) {
-            console.error('Erreur stats vidéo:', error);
-            return { success: false, error: error.message };
+            if (!isTransientMonetizationNetworkError(error)) {
+                console.error('Erreur stats vidéo:', error);
+            }
+            return {
+                success: false,
+                error: normalizeMonetizationQueryError(error),
+            };
         }
 
         const stats = {
@@ -555,8 +616,13 @@ async function getCreatorVideoStats(creatorId, period = 'month') {
 
         return { success: true, data: stats };
     } catch (error) {
-        console.error('Exception stats vidéo:', error);
-        return { success: false, error: error.message };
+        if (!isTransientMonetizationNetworkError(error)) {
+            console.error('Exception stats vidéo:', error);
+        }
+        return {
+            success: false,
+            error: normalizeMonetizationQueryError(error),
+        };
     }
 }
 
@@ -585,14 +651,24 @@ async function getCreatorVideoPayouts(creatorId, options = {}) {
         const { data, error } = await query;
         
         if (error) {
-            console.error('Erreur récupération payouts:', error);
-            return { success: false, error: error.message };
+            if (!isTransientMonetizationNetworkError(error)) {
+                console.error('Erreur récupération payouts:', error);
+            }
+            return {
+                success: false,
+                error: normalizeMonetizationQueryError(error),
+            };
         }
         
         return { success: true, data: data || [] };
     } catch (error) {
-        console.error('Exception récupération payouts:', error);
-        return { success: false, error: error.message };
+        if (!isTransientMonetizationNetworkError(error)) {
+            console.error('Exception récupération payouts:', error);
+        }
+        return {
+            success: false,
+            error: normalizeMonetizationQueryError(error),
+        };
     }
 }
 

@@ -1013,11 +1013,19 @@ body.monetization-dashboard-page .dashboard-identity-meta {
 body.monetization-dashboard-page .dashboard-identity-meta strong {
     font-size: 0.95rem;
     color: #ffffff;
+    max-width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
 }
 
 body.monetization-dashboard-page .dashboard-identity-meta span {
     font-size: 0.82rem;
     color: rgba(255, 255, 255, 0.82);
+    max-width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
 }
 
 body.monetization-dashboard-page .dashboard-header > *,
@@ -1178,6 +1186,17 @@ body.monetization-dashboard-page .video-cta {
 
 body.monetization-dashboard-page .video-cta p {
     color: #cbd5e1;
+}
+
+body.monetization-dashboard-page .dashboard-header h1,
+body.monetization-dashboard-page .dashboard-header p,
+body.monetization-dashboard-page .section-header h2,
+body.monetization-dashboard-page .wallet-panel-header h3,
+body.monetization-dashboard-page .wallet-panel-header p,
+body.monetization-dashboard-page .wallet-saved-summary,
+body.monetization-dashboard-page .wallet-meta,
+body.monetization-dashboard-page .status-detail {
+    overflow-wrap: anywhere;
 }
 
 /* ========================================
@@ -1688,6 +1707,38 @@ body.monetization-dashboard-page .video-cta p {
         padding: 15px;
     }
 
+    body.monetization-dashboard-page.has-mobile-nav nav {
+        justify-content: space-between;
+        padding:
+            calc(0.95rem + env(safe-area-inset-top, 0px))
+            max(0.95rem, env(safe-area-inset-right, 0px))
+            0.85rem
+            max(0.95rem, env(safe-area-inset-left, 0px));
+    }
+
+    body.monetization-dashboard-page.has-mobile-nav nav .logo {
+        position: static;
+        left: auto;
+        max-width: calc(100% - 112px);
+        transform: none;
+    }
+
+    body.monetization-dashboard-page.has-mobile-nav nav .logo span {
+        font-size: 1.15rem;
+        letter-spacing: -0.06em;
+    }
+
+    body.monetization-dashboard-page.has-mobile-nav nav .nav-links {
+        width: auto;
+        margin-left: auto;
+        justify-content: flex-end;
+        gap: 0.5rem;
+    }
+
+    body.monetization-dashboard-page.has-mobile-nav nav .notification-button {
+        flex: 0 0 40px;
+    }
+
     body.monetization-dashboard-page .dashboard-main {
         padding: calc(84px + env(safe-area-inset-top, 0px)) 15px calc(32px + env(safe-area-inset-bottom, 0px));
     }
@@ -1702,8 +1753,10 @@ body.monetization-dashboard-page .video-cta p {
         justify-content: center;
     }
     
+    .wallet-cards,
     .revenue-cards {
-        grid-template-columns: 1fr;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 14px;
     }
 
     .wallet-form-grid {
@@ -1744,7 +1797,8 @@ body.monetization-dashboard-page .video-cta p {
     }
     
     .video-stats-grid {
-        grid-template-columns: repeat(2, 1fr);
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 14px;
     }
     
     .video-cta {
@@ -1795,12 +1849,18 @@ body.monetization-dashboard-page .video-cta p {
     }
 
     body.monetization-dashboard-page .header-stats,
+    body.monetization-dashboard-page .wallet-panels {
+        display: grid;
+        grid-template-columns: 1fr;
+        width: 100%;
+    }
+
     body.monetization-dashboard-page .wallet-cards,
-    body.monetization-dashboard-page .wallet-panels,
     body.monetization-dashboard-page .revenue-cards,
     body.monetization-dashboard-page .video-stats-grid {
         display: grid;
-        grid-template-columns: 1fr;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 12px;
         width: 100%;
     }
 
@@ -1809,6 +1869,43 @@ body.monetization-dashboard-page .video-cta p {
     body.monetization-dashboard-page .wallet-panel {
         width: 100%;
         padding: 16px;
+    }
+
+    body.monetization-dashboard-page .revenue-card,
+    body.monetization-dashboard-page .stat-box {
+        min-width: 0;
+    }
+
+    body.monetization-dashboard-page .revenue-card {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 10px;
+        padding: 14px 12px;
+    }
+
+    body.monetization-dashboard-page .card-icon {
+        width: 42px;
+        height: 42px;
+        font-size: 18px;
+    }
+
+    body.monetization-dashboard-page .card-value,
+    body.monetization-dashboard-page .stat-number {
+        font-size: clamp(1.1rem, 5.4vw, 1.45rem);
+        line-height: 1.1;
+    }
+
+    body.monetization-dashboard-page .card-label,
+    body.monetization-dashboard-page .card-count,
+    body.monetization-dashboard-page .stat-desc,
+    body.monetization-dashboard-page .wallet-label,
+    body.monetization-dashboard-page .wallet-meta {
+        font-size: 0.74rem;
+        line-height: 1.35;
+    }
+
+    body.monetization-dashboard-page .stat-box {
+        padding: 16px 10px;
     }
 
     body.monetization-dashboard-page .stat-total .stat-value,
