@@ -961,6 +961,9 @@ body.monetization-dashboard-page {
         radial-gradient(circle at top right, rgba(168, 85, 247, 0.16), transparent 28%),
         linear-gradient(180deg, #05070d 0%, #090d17 38%, #0a1120 100%);
     color: #eef2ff;
+    overflow-x: hidden;
+    -webkit-text-size-adjust: 100%;
+    text-size-adjust: 100%;
 }
 
 body.monetization-dashboard-page .dashboard-main {
@@ -1015,6 +1018,14 @@ body.monetization-dashboard-page .dashboard-identity-meta strong {
 body.monetization-dashboard-page .dashboard-identity-meta span {
     font-size: 0.82rem;
     color: rgba(255, 255, 255, 0.82);
+}
+
+body.monetization-dashboard-page .dashboard-header > *,
+body.monetization-dashboard-page .status-card > *,
+body.monetization-dashboard-page .section-header > *,
+body.monetization-dashboard-page .wallet-panel-heading-row > *,
+body.monetization-dashboard-page .wallet-form-actions > * {
+    min-width: 0;
 }
 
 body.monetization-dashboard-page .stat-card {
@@ -1104,6 +1115,15 @@ body.monetization-dashboard-page .wallet-alert.error {
 body.monetization-dashboard-page .wallet-card {
     background: rgba(15, 23, 42, 0.82);
     border-color: rgba(71, 85, 105, 0.3);
+}
+
+body.monetization-dashboard-page .wallet-card,
+body.monetization-dashboard-page .wallet-panel,
+body.monetization-dashboard-page .stat-card,
+body.monetization-dashboard-page .section-header,
+body.monetization-dashboard-page .header-stats,
+body.monetization-dashboard-page .status-actions {
+    max-width: 100%;
 }
 
 body.monetization-dashboard-page .wallet-card-primary {
@@ -1669,7 +1689,7 @@ body.monetization-dashboard-page .video-cta p {
     }
 
     body.monetization-dashboard-page .dashboard-main {
-        padding: 92px 15px 32px;
+        padding: calc(84px + env(safe-area-inset-top, 0px)) 15px calc(32px + env(safe-area-inset-bottom, 0px));
     }
     
     .dashboard-header {
@@ -1736,6 +1756,107 @@ body.monetization-dashboard-page .video-cta p {
     body.monetization-dashboard-page .dashboard-identity-card {
         width: 100%;
         justify-content: center;
+    }
+
+    body.monetization-dashboard-page .wallet-field input,
+    body.monetization-dashboard-page .wallet-field select,
+    body.monetization-dashboard-page .wallet-field textarea,
+    body.monetization-dashboard-page .filter-actions select {
+        font-size: 16px;
+    }
+}
+
+@media (max-width: 480px) {
+    body.monetization-dashboard-page .dashboard-main {
+        padding: calc(80px + env(safe-area-inset-top, 0px)) 12px calc(24px + env(safe-area-inset-bottom, 0px));
+    }
+
+    body.monetization-dashboard-page .dashboard-header,
+    body.monetization-dashboard-page .wallet-section,
+    body.monetization-dashboard-page .transactions-section,
+    body.monetization-dashboard-page .payouts-section,
+    body.monetization-dashboard-page .withdrawals-section,
+    body.monetization-dashboard-page .video-stats-section {
+        padding: 18px 14px;
+        border-radius: 18px;
+    }
+
+    body.monetization-dashboard-page .dashboard-header {
+        gap: 18px;
+    }
+
+    body.monetization-dashboard-page .dashboard-header h1 {
+        font-size: 1.85rem;
+        line-height: 1.1;
+    }
+
+    body.monetization-dashboard-page .dashboard-header p {
+        font-size: 0.95rem;
+    }
+
+    body.monetization-dashboard-page .header-stats,
+    body.monetization-dashboard-page .wallet-cards,
+    body.monetization-dashboard-page .wallet-panels,
+    body.monetization-dashboard-page .revenue-cards,
+    body.monetization-dashboard-page .video-stats-grid {
+        display: grid;
+        grid-template-columns: 1fr;
+        width: 100%;
+    }
+
+    body.monetization-dashboard-page .stat-card,
+    body.monetization-dashboard-page .wallet-card,
+    body.monetization-dashboard-page .wallet-panel {
+        width: 100%;
+        padding: 16px;
+    }
+
+    body.monetization-dashboard-page .stat-total .stat-value,
+    body.monetization-dashboard-page .wallet-value {
+        font-size: clamp(1.75rem, 8vw, 2.2rem);
+    }
+
+    body.monetization-dashboard-page .status-card {
+        padding: 18px 16px;
+        gap: 14px;
+    }
+
+    body.monetization-dashboard-page .status-actions,
+    body.monetization-dashboard-page .wallet-form-actions {
+        width: 100%;
+        flex-direction: column;
+        align-items: stretch;
+    }
+
+    body.monetization-dashboard-page .status-actions > *,
+    body.monetization-dashboard-page .wallet-form-actions > *,
+    body.monetization-dashboard-page #walletRefreshBtn,
+    body.monetization-dashboard-page .filter-actions select {
+        width: 100%;
+        justify-content: center;
+    }
+
+    body.monetization-dashboard-page .period-filter {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        width: 100%;
+    }
+
+    body.monetization-dashboard-page .section-header {
+        align-items: stretch;
+    }
+
+    body.monetization-dashboard-page .filter-btn {
+        width: 100%;
+        justify-content: center;
+    }
+
+    body.monetization-dashboard-page .transactions-table-wrapper,
+    body.monetization-dashboard-page .payouts-table-wrapper,
+    body.monetization-dashboard-page .withdrawals-table-wrapper {
+        margin: 0 -14px;
+        padding: 0 14px 2px;
+        -webkit-overflow-scrolling: touch;
     }
 }
 

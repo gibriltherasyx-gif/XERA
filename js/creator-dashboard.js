@@ -13,7 +13,47 @@ window.creatorDashboardLastSupportNotificationId = null;
 
 const SUPPORT_COMMISSION_RATE = 0.2;
 
+function lockDashboardStandaloneZoom() {
+    const isStandalone =
+        (typeof window.matchMedia === 'function' &&
+            window.matchMedia('(display-mode: standalone)').matches) ||
+        (typeof navigator !== 'undefined' && navigator.standalone === true);
+
+    if (!isStandalone || window.__xeraDashboardZoomLocked) {
+        return;
+    }
+
+    window.__xeraDashboardZoomLocked = true;
+
+    let viewport = document.querySelector('meta[name="viewport"]');
+    if (!viewport) {
+        viewport = document.createElement('meta');
+        viewport.setAttribute('name', 'viewport');
+        document.head.appendChild(viewport);
+    }
+
+    viewport.setAttribute(
+        'content',
+        'width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover',
+    );
+
+    const blockGesture = (event) => event.preventDefault();
+    document.addEventListener('gesturestart', blockGesture, { passive: false });
+    document.addEventListener('gesturechange', blockGesture, { passive: false });
+    document.addEventListener('gestureend', blockGesture, { passive: false });
+    document.addEventListener(
+        'touchmove',
+        (event) => {
+            if (event.touches && event.touches.length > 1) {
+                event.preventDefault();
+            }
+        },
+        { passive: false },
+    );
+}
+
 document.addEventListener('DOMContentLoaded', async () => {
+    lockDashboardStandaloneZoom();
     if (window.initI18n) {
         await window.initI18n();
     }
