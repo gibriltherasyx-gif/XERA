@@ -53,6 +53,14 @@
             },
         },
         {
+            selector: 'meta[name="mobile-web-app-capable"]',
+            tagName: "meta",
+            attributes: {
+                name: "mobile-web-app-capable",
+                content: "yes",
+            },
+        },
+        {
             selector: 'meta[name="apple-mobile-web-app-capable"]',
             tagName: "meta",
             attributes: {

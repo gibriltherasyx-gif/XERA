@@ -21,6 +21,7 @@ document.addEventListener("DOMContentLoaded", async () => {
         return;
     }
 
+    await ensurePaymentUserProfile(user);
     hydrateNavAvatar(user);
 
     let accessToken = "";
@@ -85,6 +86,67 @@ async function hydrateNavAvatar(user) {
         }
     } catch (error) {
         console.error("Erreur chargement avatar:", error);
+    }
+}
+
+async function ensurePaymentUserProfile(user) {
+    if (
+        !user?.id ||
+        typeof getUserProfile !== "function" ||
+        typeof upsertUserProfile !== "function"
+    ) {
+        return null;
+    }
+
+    try {
+        const profileResult = await getUserProfile(user.id);
+        if (profileResult?.success && profileResult.data) {
+            return profileResult.data;
+        }
+
+        const errorCode = String(profileResult?.code || "").trim();
+        const errorMessage = String(profileResult?.error || "").toLowerCase();
+        const isMissingProfile =
+            errorCode === "PGRST116" ||
+            errorCode === "PGRST302" ||
+            errorMessage.includes("no rows") ||
+            errorMessage.includes("not found") ||
+            errorMessage.includes("row");
+
+        if (!isMissingProfile) {
+            return null;
+        }
+
+        const username = String(
+            user.user_metadata?.username ||
+                user.email?.split("@")[0] ||
+                "Nouveau membre",
+        ).trim();
+        const profileData = {
+            name: username || "Nouveau membre",
+            title: "Nouveau membre",
+            bio: "",
+            avatar: `https://api.dicebear.com/7.x/avataaars/svg?seed=${user.id}`,
+            banner: "https://placehold.co/1200x300/1a1a2e/00ff88?text=Ma+Trajectoire",
+            account_type: user.user_metadata?.account_type || null,
+            account_subtype: user.user_metadata?.account_subtype || null,
+            badge: user.user_metadata?.badge || null,
+            socialLinks: {},
+        };
+
+        const createResult = await upsertUserProfile(user.id, profileData);
+        if (!createResult?.success) {
+            console.warn(
+                "Profil paiement non cree automatiquement:",
+                createResult?.error || "Erreur inconnue",
+            );
+            return null;
+        }
+
+        return createResult.data || null;
+    } catch (error) {
+        console.error("Erreur initialisation profil paiement:", error);
+        return null;
     }
 }
 
@@ -436,7 +498,8 @@ function setupPaymentForm(user, paymentContext, accessToken = "") {
         clearPaymentError();
     });
 
-    form.addEventListener("submit", (event) => {
+    form.addEventListener("submit", async (event) => {
+        event.preventDefault();
         if (errorBox) errorBox.textContent = "";
         if (payButton) payButton.disabled = false;
 
@@ -445,7 +508,6 @@ function setupPaymentForm(user, paymentContext, accessToken = "") {
                 inputSupportAmountUsd?.value || "0",
             );
             if (!Number.isInteger(supportAmount) || supportAmount < 1) {
-                event.preventDefault();
                 showPaymentError(
                     "Le soutien doit être un montant entier en USD.",
                 );
@@ -457,7 +519,6 @@ function setupPaymentForm(user, paymentContext, accessToken = "") {
             const provider = providerSelect.value.trim();
             const wallet = walletInput.value.trim();
             if (!provider || !wallet) {
-                event.preventDefault();
                 showPaymentError(
                     "Sélectionne un opérateur et un numéro Mobile Money.",
                 );
@@ -469,7 +530,61 @@ function setupPaymentForm(user, paymentContext, accessToken = "") {
             inputProvider.value = "";
             inputWallet.value = "";
         }
+
+        const originalButtonText = payButton?.textContent || "";
+
+        try {
+            clearPaymentError();
+            if (payButton) {
+                payButton.disabled = true;
+                payButton.textContent = "Connexion a MaishaPay...";
+            }
+
+            const response = await fetch(form.action, {
+                method: (form.method || "POST").toUpperCase(),
+                headers: {
+                    Accept: "text/html",
+                    "Content-Type":
+                        "application/x-www-form-urlencoded;charset=UTF-8",
+                },
+                body: new URLSearchParams(new FormData(form)).toString(),
+                credentials: "same-origin",
+            });
+            const responseText = await response.text();
+
+            if (!response.ok) {
+                showPaymentError(
+                    extractPaymentResponseMessage(responseText) ||
+                        "Erreur MaishaPay.",
+                );
+                return;
+            }
+
+            document.open();
+            document.write(responseText);
+            document.close();
+        } catch (error) {
+            console.error("Erreur checkout MaishaPay:", error);
+            showPaymentError(
+                "Impossible de contacter le serveur de paiement.",
+            );
+        } finally {
+            if (payButton?.isConnected) {
+                payButton.disabled = false;
+                payButton.textContent = originalButtonText;
+            }
+        }
     });
+}
+
+function extractPaymentResponseMessage(value) {
+    const text = String(value || "")
+        .replace(/<style[\s\S]*?<\/style>/gi, " ")
+        .replace(/<script[\s\S]*?<\/script>/gi, " ")
+        .replace(/<[^>]+>/g, " ")
+        .replace(/\s+/g, " ")
+        .trim();
+    return text.slice(0, 240);
 }
 
 function setupPaymentHint(paymentContext) {
