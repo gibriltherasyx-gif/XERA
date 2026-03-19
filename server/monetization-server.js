@@ -289,16 +289,55 @@ function verifySignedState(state) {
 }
 
 async function resolveUserId(accessToken, fallbackId) {
-    if (!accessToken) return fallbackId;
+    const requestUser = await resolveRequestUser(accessToken, fallbackId);
+    return requestUser.id;
+}
+
+async function resolveRequestUser(accessToken, fallbackId) {
+    if (!accessToken) {
+        return {
+            id: fallbackId || null,
+            email: null,
+        };
+    }
     try {
         const { data, error } = await supabase.auth.getUser(accessToken);
         if (!error && data?.user?.id) {
-            return data.user.id;
+            return {
+                id: data.user.id,
+                email: data.user.email || null,
+            };
         }
     } catch (e) {
         // ignore
     }
-    return fallbackId;
+    return {
+        id: fallbackId || null,
+        email: null,
+    };
+}
+
+async function ensurePublicUserRecord(userId, options = {}) {
+    const safeUserId = String(userId || "").trim();
+    if (!safeUserId) return;
+
+    const email = String(options.email || "").trim() || null;
+    let payload = email ? { id: safeUserId, email } : { id: safeUserId };
+
+    let { error } = await supabase.from("users").upsert(payload, {
+        onConflict: "id",
+    });
+
+    if (error && email && isMissingColumnError(error)) {
+        payload = { id: safeUserId };
+        ({ error } = await supabase.from("users").upsert(payload, {
+            onConflict: "id",
+        }));
+    }
+
+    if (error) {
+        throw error;
+    }
 }
 
 async function createPendingSubscriptionPayment({
@@ -543,6 +582,15 @@ function getWalletSchemaErrorMessage() {
     return "Schema portefeuille manquant. Executez sql/monetization-supabase-one-shot.sql ou sql/monetization-wallet.sql dans Supabase SQL Editor.";
 }
 
+function isForeignKeyViolation(error) {
+    const code = String(error?.code || "").trim();
+    const message = String(error?.message || "").toLowerCase();
+    return (
+        code === "23503" ||
+        (message.includes("foreign key") && message.includes("violates"))
+    );
+}
+
 function getReadableServerErrorMessage(error, fallbackMessage) {
     const message = String(error?.message || "").trim();
     if (!message) return fallbackMessage;
@@ -552,6 +600,14 @@ function getReadableServerErrorMessage(error, fallbackMessage) {
 function sendCheckoutErrorResponse(res, error, fallbackMessage) {
     if (isMissingRelationError(error) || isMissingColumnError(error)) {
         return res.status(503).send(getWalletSchemaErrorMessage());
+    }
+
+    if (isForeignKeyViolation(error)) {
+        return res
+            .status(409)
+            .send(
+                "Profil utilisateur incomplet dans la base. Deconnectez-vous puis reconnectez-vous avant de reessayer.",
+            );
     }
 
     if (String(process.env.NODE_ENV || "").toLowerCase() !== "production") {
@@ -1552,10 +1608,15 @@ async function handleMaishaPaySubscriptionCheckout(req, res) {
             return res.status(400).send("Devise invalide");
         }
 
-        const userId = await resolveUserId(accessToken, fallbackUserId);
+        const requestUser = await resolveRequestUser(
+            accessToken,
+            fallbackUserId,
+        );
+        const userId = requestUser.id;
         if (!userId) {
             return res.status(401).send("Utilisateur non authentifié");
         }
+        await ensurePublicUserRecord(userId, { email: requestUser.email });
 
         const returnPath = sanitizeReturnPath(
             rawReturnPath,
@@ -1660,10 +1721,17 @@ async function handleMaishaPaySupportCheckout(req, res) {
             return_path: rawReturnPath,
         } = req.body || {};
 
-        const fromUserId = await resolveUserId(accessToken, fallbackUserId);
+        const requestUser = await resolveRequestUser(
+            accessToken,
+            fallbackUserId,
+        );
+        const fromUserId = requestUser.id;
         if (!fromUserId) {
             return res.status(401).send("Utilisateur non authentifié");
         }
+        await ensurePublicUserRecord(fromUserId, {
+            email: requestUser.email,
+        });
 
         if (!toUserId) {
             return res.status(400).send("Destinataire manquant");
