@@ -298,14 +298,31 @@ async function resolveRequestUser(accessToken, fallbackId) {
         return {
             id: fallbackId || null,
             email: null,
+            username: null,
+            name: null,
+            avatarUrl: null,
+            accountType: null,
+            accountSubtype: null,
+            badge: null,
         };
     }
     try {
         const { data, error } = await supabase.auth.getUser(accessToken);
         if (!error && data?.user?.id) {
+            const metadata =
+                data.user.user_metadata &&
+                typeof data.user.user_metadata === "object"
+                    ? data.user.user_metadata
+                    : {};
             return {
                 id: data.user.id,
                 email: data.user.email || null,
+                username: metadata.username || null,
+                name: metadata.name || metadata.full_name || null,
+                avatarUrl: metadata.avatar_url || metadata.avatar || null,
+                accountType: metadata.account_type || null,
+                accountSubtype: metadata.account_subtype || null,
+                badge: metadata.badge || null,
             };
         }
     } catch (e) {
@@ -314,6 +331,12 @@ async function resolveRequestUser(accessToken, fallbackId) {
     return {
         id: fallbackId || null,
         email: null,
+        username: null,
+        name: null,
+        avatarUrl: null,
+        accountType: null,
+        accountSubtype: null,
+        badge: null,
     };
 }
 
@@ -322,21 +345,84 @@ async function ensurePublicUserRecord(userId, options = {}) {
     if (!safeUserId) return;
 
     const email = String(options.email || "").trim() || null;
-    let payload = email ? { id: safeUserId, email } : { id: safeUserId };
+    const username =
+        String(options.username || options.name || "").trim() ||
+        (email ? email.split("@")[0] : "") ||
+        "xera_user";
+    const displayName = String(options.name || "").trim() || username;
+    const defaultAvatar = `https://api.dicebear.com/7.x/avataaars/svg?seed=${safeUserId}`;
+    const defaultBanner =
+        "https://placehold.co/1200x300/1a1a2e/00ff88?text=Ma+Trajectoire";
+    const nowIso = new Date().toISOString();
+    const payloadCandidates = [
+        {
+            id: safeUserId,
+            email,
+            username,
+            name: displayName,
+            title: "Nouveau membre",
+            bio: "",
+            avatar: String(options.avatarUrl || "").trim() || defaultAvatar,
+            banner: defaultBanner,
+            account_type: options.accountType || null,
+            account_subtype: options.accountSubtype || null,
+            badge: options.badge || null,
+            social_links: {},
+            updated_at: nowIso,
+        },
+        {
+            id: safeUserId,
+            username,
+            name: displayName,
+            title: "Nouveau membre",
+            bio: "",
+            avatar: String(options.avatarUrl || "").trim() || defaultAvatar,
+            banner: defaultBanner,
+            badge: options.badge || null,
+            updated_at: nowIso,
+        },
+        {
+            id: safeUserId,
+            username,
+            name: displayName,
+            updated_at: nowIso,
+        },
+        {
+            id: safeUserId,
+            name: displayName,
+            updated_at: nowIso,
+        },
+        {
+            id: safeUserId,
+        },
+    ].map((payload) =>
+        Object.fromEntries(
+            Object.entries(payload).filter(([, value]) => value !== undefined),
+        ),
+    );
 
-    let { error } = await supabase.from("users").upsert(payload, {
-        onConflict: "id",
-    });
-
-    if (error && email && isMissingColumnError(error)) {
-        payload = { id: safeUserId };
-        ({ error } = await supabase.from("users").upsert(payload, {
+    let lastError = null;
+    for (const payload of payloadCandidates) {
+        const { error } = await supabase.from("users").upsert(payload, {
             onConflict: "id",
-        }));
+        });
+
+        if (!error) {
+            return;
+        }
+
+        lastError = error;
+        if (
+            !isMissingColumnError(error) &&
+            !isMissingRelationError(error) &&
+            !isNotNullViolation(error)
+        ) {
+            break;
+        }
     }
 
-    if (error) {
-        throw error;
+    if (lastError) {
+        throw lastError;
     }
 }
 
@@ -591,6 +677,15 @@ function isForeignKeyViolation(error) {
     );
 }
 
+function isNotNullViolation(error) {
+    const code = String(error?.code || "").trim();
+    const message = String(error?.message || "").toLowerCase();
+    return (
+        code === "23502" ||
+        (message.includes("null value") && message.includes("violates"))
+    );
+}
+
 function getReadableServerErrorMessage(error, fallbackMessage) {
     const message = String(error?.message || "").trim();
     if (!message) return fallbackMessage;
@@ -607,6 +702,17 @@ function sendCheckoutErrorResponse(res, error, fallbackMessage) {
             .status(409)
             .send(
                 "Profil utilisateur incomplet dans la base. Deconnectez-vous puis reconnectez-vous avant de reessayer.",
+            );
+    }
+
+    if (isNotNullViolation(error)) {
+        return res
+            .status(409)
+            .send(
+                getReadableServerErrorMessage(
+                    error,
+                    "Certaines donnees du profil utilisateur sont manquantes pour lancer le paiement.",
+                ),
             );
     }
 
@@ -1616,7 +1722,15 @@ async function handleMaishaPaySubscriptionCheckout(req, res) {
         if (!userId) {
             return res.status(401).send("Utilisateur non authentifié");
         }
-        await ensurePublicUserRecord(userId, { email: requestUser.email });
+        await ensurePublicUserRecord(userId, {
+            email: requestUser.email,
+            username: requestUser.username,
+            name: requestUser.name,
+            avatarUrl: requestUser.avatarUrl,
+            accountType: requestUser.accountType,
+            accountSubtype: requestUser.accountSubtype,
+            badge: requestUser.badge,
+        });
 
         const returnPath = sanitizeReturnPath(
             rawReturnPath,
@@ -1731,6 +1845,12 @@ async function handleMaishaPaySupportCheckout(req, res) {
         }
         await ensurePublicUserRecord(fromUserId, {
             email: requestUser.email,
+            username: requestUser.username,
+            name: requestUser.name,
+            avatarUrl: requestUser.avatarUrl,
+            accountType: requestUser.accountType,
+            accountSubtype: requestUser.accountSubtype,
+            badge: requestUser.badge,
         });
 
         if (!toUserId) {
