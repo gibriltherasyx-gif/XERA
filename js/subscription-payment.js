@@ -540,8 +540,11 @@ function setupPaymentForm(user, paymentContext, accessToken = "") {
                 payButton.textContent = "Connexion a MaishaPay...";
             }
 
+            const submitMethod = String(
+                form.getAttribute("method") || "POST",
+            ).toUpperCase();
             const response = await fetch(form.action, {
-                method: (form.method || "POST").toUpperCase(),
+                method: submitMethod,
                 headers: {
                     Accept: "text/html",
                     "Content-Type":
