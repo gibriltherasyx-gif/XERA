@@ -30,11 +30,21 @@ const PLANS = {
             'Fonctionnalités de monétisation',
             'Soutiens de la communauté (dons)',
             'Avatar/Bannière GIF autorisés',
-            'Notifications automatiques aux followers'
+            'Notifications automatiques aux followers',
+            'Statistiques détaillées des revenus',
+            'Personnalisation avancée du profil',
+            'Badge de créateur vérifié',
+            'Priorité dans les recommandations'
         ],
         canReceiveTips: true,
         canMonetizeVideos: false,
-        minFollowers: 1000
+        minFollowers: 1000,
+        exclusiveFeatures: {
+            detailedAnalytics: true,
+            advancedProfileCustomization: true,
+            verifiedCreatorBadge: true,
+            priorityRecommendations: true
+        }
     },
     PRO: {
         id: 'PLAN_PRO',
@@ -46,12 +56,28 @@ const PLANS = {
             'Badge Gold',
             'Analytics avancés',
             'Lives en HD',
-            'Lives privés réservés aux followers'
+            'Lives privés réservés aux followers',
+            'Monétisation vidéo ($0.40 par 1000 vues)',
+            'Outils de collaboration avancés',
+            'Accès anticipé aux nouvelles fonctionnalités',
+            'Personnalisation complète de la page profil',
+            'Statistiques en temps réel',
+            'Export des données et rapports détaillés',
+            'Visibilité maximale dans Discover'
         ],
         canReceiveTips: true,
         canMonetizeVideos: true,
         minFollowers: 1000,
-        rpmRate: 0.40
+        rpmRate: 0.40,
+        exclusiveFeatures: {
+            videoMonetization: true,
+            advancedCollaborationTools: true,
+            earlyAccessFeatures: true,
+            fullProfileCustomization: true,
+            realtimeAnalytics: true,
+            dataExportReports: true,
+            maximumDiscoverVisibility: true
+        }
     }
 };
 
